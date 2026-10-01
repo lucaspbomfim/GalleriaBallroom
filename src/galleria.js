@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.4.0
+ * GalleriaBallroom engine v0.4.2
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.4.0';
+  var VERSION = '0.4.2';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -256,6 +256,14 @@
     cv.className = 'gx-gl';
     cv.setAttribute('aria-hidden', 'true');
     cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:block;pointer-events:none';
+    var G = glOn(cv);
+    if (!G) return null;
+    cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); GX.debug.lost = true; toCSS(); });
+    return G;
+  }
+
+  // one curtain program on a canvas: the hero's, and the stage's (scene 3)
+  function glOn(cv) {
     var g = null;
     try {
       g = cv.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
@@ -298,14 +306,14 @@
     var tx = [tex(0), tex(1)];
     g.uniform1i(U.S0, 0);
     g.uniform1i(U.S1, 1);
-    cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); GX.debug.lost = true; toCSS(); });
     return { cv: cv, g: g, U: U, tx: tx };
   }
 
-  function upload(unit, canvas) {
-    var g = GL.g;
+  function upload(unit, canvas, G) {
+    G = G || GL;
+    var g = G.g;
     g.activeTexture(g.TEXTURE0 + unit);
-    g.bindTexture(g.TEXTURE_2D, GL.tx[unit]);
+    g.bindTexture(g.TEXTURE_2D, G.tx[unit]);
     g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, canvas);
   }
 
@@ -1079,8 +1087,8 @@
      it. The others come from the table below. Each state is a print technique: the current ticket
      is printed on cream stock in oxblood ink; a closed one is a blind emboss on oxblood stock; the
      next one is engraved in line. Sales close by the clock at the end of November 10 in Orlando.
-     Passage: on desktop velvet drapes come down beside the checkout like a box-office window; on a
-     phone a curtain closes and opens again in about 0.4 s. Thanks: when the checkout reports a
+     Passage: on desktop velvet drapes, tied back, come down beside the checkout like a box-office
+     window; on a phone a curtain closes and opens again in about 1.25 s. Thanks: when the checkout reports a
      completed purchase, a curtain closes on "Your place is confirmed." and opens again by itself.
      Review hashes: #closed (sales closed), #lot2, #lot3 (another lot current). */
 
@@ -1163,41 +1171,106 @@
       .to(P, { k: 1, duration: 0.6, ease: 'power2.out' });
   }
 
+  /* ------------------------------------------------------------ the stage
+     The same curtain, elsewhere: a second canvas fixed over the window, drawn by the hero's own
+     shader (same velvet, same tableau, same projector). It frames the checkout as a tableau on
+     desktop, crosses the screen on a phone, and carries the thanks. It draws only while something
+     on it moves; at rest it keeps its last frame. */
+
+  var STG = null;
+  function stageGet() {
+    if (STG !== null) return STG || null;
+    var cv = doc.createElement('canvas');
+    cv.className = 'gx-stage'; cv.setAttribute('aria-hidden', 'true');
+    var G = glOn(cv);
+    if (!G) { STG = false; return null; }
+    STG = { G: G, cv: cv, st: { open: 0, lift: 1, live: 0, grain: 1, proj: 0, sag: 0, swing: 0 }, F: [0.86, 0.42, 0.06], sp: [{}, {}, {}], n: 0, W: 0, H: 0, pts: [], size: 12 };
+    cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); cv.remove(); STG = false; });
+    return STG;
+  }
+  function stageShow(z) {
+    var S2 = stageGet();
+    if (!S2) return null;
+    S2.cv.style.zIndex = z;
+    var dpr = Math.min(window.devicePixelRatio || 1, DESK ? 2 : 1.5);
+    S2.W = innerWidth; S2.H = innerHeight;
+    S2.cv.style.width = S2.W + 'px'; S2.cv.style.height = S2.H + 'px';
+    S2.cv.width = Math.round(S2.W * dpr); S2.cv.height = Math.round(S2.H * dpr);
+    S2.G.g.viewport(0, 0, S2.cv.width, S2.cv.height);
+    if (!S2.cv.parentNode) doc.body.appendChild(S2.cv);
+    return S2;
+  }
+  var spStage = new Float32Array(12);
+  function stageDraw() {
+    var S2 = STG;
+    if (!S2) return;
+    var g = S2.G.g, U = S2.G.U, T = clock(), f = flicker(T), st = S2.st;
+    g.uniform2f(U.R, S2.cv.width, S2.cv.height); g.uniform2f(U.V, S2.W, S2.H); g.uniform1f(U.T, T % 1000);
+    g.uniform2f(U.P, PW[0], PW[1]); g.uniform1f(U.O, st.open); g.uniform1f(U.L, st.lift); g.uniform2f(U.K, 0, 0);
+    g.uniform1f(U.LV, st.live); g.uniform1f(U.GR, st.grain); g.uniform1f(U.PJ, st.proj);
+    g.uniform3f(U.F, S2.F[0], S2.F[1], S2.F[2]); g.uniform2f(U.SG, st.sag, st.swing); g.uniform4f(U.PF, f[0], f[1], f[2], f[3]);
+    for (var i = 0; i < 3; i++) { var p = S2.sp[i]; spStage[i * 4] = p.x || 0; spStage[i * 4 + 1] = p.y || 0; spStage[i * 4 + 2] = p.z || 1; spStage[i * 4 + 3] = p.w || 0; }
+    g.uniform4fv(U.SP, spStage);
+    g.clearColor(0, 0, 0, 0); g.clear(g.COLOR_BUFFER_BIT);
+    g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+  }
+  function stageHold() { if (STG && !STG.n++) gsap.ticker.add(stageDraw); }
+  function stageFree() { if (STG && STG.n > 0 && !--STG.n) { gsap.ticker.remove(stageDraw); stageDraw(); } }
+  function stageHide() { if (!STG) return; STG.n = 0; gsap.ticker.remove(stageDraw); STG.sp.forEach(function (p) { p.w = 0; }); if (STG.cv.parentNode) STG.cv.remove(); }
+  addEventListener('resize', function () { if (STG && STG.cv.parentNode) { stageShow(STG.cv.style.zIndex); stageDraw(); } });
+
   /* the passage to the checkout */
-  var pass = null;
+  var pass = null, thanking = false;
   function velvet(cls) { var d = doc.createElement('div'); d.className = 'gx-velvet ' + cls; d.setAttribute('aria-hidden', 'true'); return d; }
   function passage(openNative) {
     var X = audio();
-    if (X && live()) swish(X, X.c.currentTime + 0.01, DESK ? 0.8 : 0.42, 0.05);
+    if (X && live()) swish(X, X.c.currentTime + 0.01, DESK ? 0.9 : 0.6, 0.05);
     if (B.rm && !DESK) { openNative(); return; }
     if (!DESK) {
+      var P2 = stageShow(10002);
+      if (P2) {
+        // the curtain comes down over the page, the checkout opens behind it, the curtain flies out
+        P2.F = frameEnd(P2.W, P2.H); P2.st.open = 0; P2.st.lift = 1; P2.st.live = 0.5; P2.st.proj = 0;
+        stageHold();
+        gsap.timeline({ onComplete: function () { stageFree(); stageHide(); } })
+          .to(P2.st, { lift: 0, duration: 0.5, ease: 'power2.in' }, 0)
+          .call(openNative, null, 0.52)
+          .to(P2.st, { lift: 1, duration: 0.7, ease: 'power2.inOut' }, 0.68);
+        return;
+      }
       var L = doc.createElement('div'); L.className = 'gx-pass gx-pass--phone';
       var a = velvet('gx-pass__half'), b = velvet('gx-pass__half gx-pass__half--r'); L.appendChild(a); L.appendChild(b); doc.body.appendChild(L);
       gsap.timeline({ onComplete: function () { L.remove(); } })
-        .fromTo(a, { xPercent: -101 }, { xPercent: 0, duration: 0.18, ease: 'power2.in' }, 0)
-        .fromTo(b, { xPercent: 101 }, { xPercent: 0, duration: 0.18, ease: 'power2.in' }, 0)
-        .call(openNative, null, 0.19)
-        .to(a, { xPercent: -101, duration: 0.23, ease: 'power2.out' }, 0.21)
-        .to(b, { xPercent: 101, duration: 0.23, ease: 'power2.out' }, 0.21);
+        .fromTo(a, { xPercent: -101 }, { xPercent: 0, duration: 0.45, ease: 'power2.inOut' }, 0)
+        .fromTo(b, { xPercent: 101 }, { xPercent: 0, duration: 0.45, ease: 'power2.inOut' }, 0)
+        .call(openNative, null, 0.47)
+        .to(a, { xPercent: -101, duration: 0.6, ease: 'power2.inOut' }, 0.65)
+        .to(b, { xPercent: 101, duration: 0.6, ease: 'power2.inOut' }, 0.65);
       return;
     }
+    // desktop: a dark house, then the curtain comes down already drawn into a tableau around the
+    // checkout, its opening sized to the box, like a box-office window
     if (pass) pass.remove();
-    pass = doc.createElement('div'); pass.className = 'gx-pass gx-pass--desk';
-    var val = velvet('gx-pass__valance'), l = velvet('gx-pass__side'), r = velvet('gx-pass__side gx-pass__side--r');
-    pass.appendChild(val); pass.appendChild(l); pass.appendChild(r); doc.body.appendChild(pass);
+    pass = doc.createElement('div'); pass.className = 'gx-pass gx-pass--desk'; doc.body.appendChild(pass);
+    var D = stageShow(10000);
     openNative();
-    if (B.rm) return;
-    gsap.timeline()
-      .fromTo(pass, { opacity: 0 }, { opacity: 1, duration: 0.25 }, 0)
-      .fromTo([l, r], { yPercent: -100 }, { yPercent: 0, duration: 0.75, ease: 'power3.out' }, 0.05)
-      .fromTo(val, { yPercent: -100 }, { yPercent: 0, duration: 0.6, ease: 'power3.out' }, 0);
+    if (!D) return;
+    var half = Math.min(384, innerWidth * 0.45) / (innerWidth / 2);
+    D.F = [Math.min(0.9, half + 0.07), 0.5, 0.05];
+    D.st.open = 1; D.st.lift = 1; D.st.live = 0.7; D.st.proj = 0; D.st.grain = 1;
+    if (B.rm) { D.st.lift = 0; D.st.live = 0; stageDraw(); return; }
+    gsap.fromTo(pass, { opacity: 0 }, { opacity: 1, duration: 0.3 });
+    stageHold(); stageHold();
+    gsap.to(D.st, { lift: 0, duration: 1.15, ease: 'power3.out', onComplete: stageFree });
+    gsap.to(D.st, { live: 0, duration: 2.6, ease: 'sine.out', onComplete: stageFree });   // the sway settles, then it holds still
   }
   function passOut() {
-    if (!pass) return;
-    var p = pass; pass = null;
-    gsap.timeline({ onComplete: function () { p.remove(); } })
-      .to(p.querySelectorAll('.gx-pass__side,.gx-pass__valance'), { yPercent: -100, duration: 0.5, ease: 'power2.in' }, 0)
-      .to(p, { opacity: 0, duration: 0.3 }, 0.25);
+    var p = pass;
+    pass = null;
+    if (p) gsap.to(p, { opacity: 0, duration: thanking ? 0.01 : 0.45, delay: thanking ? 0 : 0.3, onComplete: function () { p.remove(); } });
+    if (thanking || !STG || !STG.cv.parentNode || !DESK) return;
+    stageHold();
+    gsap.to(STG.st, { lift: 1, duration: 0.75, ease: 'power2.in', onComplete: function () { stageFree(); stageHide(); } });
   }
 
   function modalWatch() {
@@ -1223,9 +1296,92 @@
     });
   }
 
+  /* thanks: the reward for buying. The same curtain closes (on desktop the tableau that framed the
+     checkout closes over it), and the opening's projector lights the confirmation on its pleats, with
+     the lamp's flicker and the glints. Then the curtain flies out as it did at the start. It opens by
+     itself after a few seconds, or sooner on a click, a tap, Escape or Continue. Nobody is held. */
+  function thanksCard(S2) {
+    var W = S2.W, H = S2.H, por = W < H, cx = W / 2, dpr = Math.min(window.devicePixelRatio || 1, DESK ? 2 : 1.5);
+    var cv = doc.createElement('canvas'); cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.fillStyle = '#fff'; x.textAlign = 'center';
+    var FT = por ? W * 0.118 : Math.min(W * 0.066, H * 0.12), fs = por ? 11 : Math.max(11, Math.min(15, W * 0.0095));
+    x.font = '300 ' + FT + 'px tt-modernoir, "Lexend Peta", sans-serif';
+    var lines = x.measureText('YOUR PLACE IS CONFIRMED.').width < W * 0.84 ? ['YOUR PLACE IS CONFIRMED.'] : ['YOUR PLACE', 'IS CONFIRMED.'];
+    var tH = FT * 0.7 * lines.length + FT * 0.3 * (lines.length - 1), total = tH + FT * 0.55 + fs;
+    var y0 = H * (por ? 0.44 : 0.46) - total / 2, x0 = W, x1 = 0;
+    lines.forEach(function (t, i) { x.fillText(t, cx, y0 + FT * 0.7 + i * FT); var mw = x.measureText(t).width; x0 = Math.min(x0, cx - mw / 2); x1 = Math.max(x1, cx + mw / 2); });
+    x.font = '400 ' + fs + 'px "Lexend Peta", sans-serif';
+    x.fillText('SEE YOU ON NOVEMBER 19.', cx, y0 + tH + FT * 0.55 + fs * 0.75);
+    var hw = Math.max(2, Math.round(W / 4)), hh = Math.max(2, Math.round(H / 4)), hc = doc.createElement('canvas');
+    hc.width = hw; hc.height = hh;
+    var hx = hc.getContext('2d'); hx.shadowColor = '#fff'; hx.shadowBlur = 7; hx.shadowOffsetX = 10000;
+    hx.drawImage(cv, -10000, 0, hw, hh); hx.drawImage(cv, -10000, 0, hw, hh);
+    S2.pts = [];
+    try {
+      var bx = Math.max(0, Math.floor(x0 * dpr)), by = Math.floor(y0 * dpr), bw = Math.max(1, Math.ceil((x1 - x0) * dpr)), bh = Math.max(1, Math.ceil(tH * dpr));
+      var im = x.getImageData(bx, by, bw, bh).data, step = Math.max(2, Math.round(3 * dpr));
+      for (var j = 0; j < bh; j += step) for (var i = 0; i < bw; i += step) if (im[(j * bw + i) * 4 + 3] > 220) S2.pts.push([(bx + i) / dpr, (by + j) / dpr]);
+    } catch (e) { S2.pts = []; }
+    S2.size = Math.max(9, FT * 0.16);
+    upload(0, cv, S2.G); upload(1, hc, S2.G);
+  }
+  function thanksGlints(S2) {
+    if (!S2.pts.length || S2.st.proj < 0.5) return;
+    [0, 1].forEach(function (k) {
+      var q = S2.sp[k], pt = S2.pts[(Math.random() * S2.pts.length) | 0];
+      q.x = pt[0]; q.y = pt[1]; q.z = S2.size * (0.8 + Math.random() * 0.5); q.w = 0;
+      gsap.timeline({ delay: k * 0.14 }).to(q, { w: 1, duration: 0.22, ease: 'power2.out' }).to(q, { w: 0, duration: 0.5, ease: 'power2.in' });
+    });
+  }
+  function thanks() {
+    if (doc.querySelector('.gx-thanks') || thanking) return;
+    var fromPass = !!pass && DESK && STG && STG.cv.parentNode;
+    var S2 = stageShow(10003);
+    if (!S2) return thanksCSS();
+    thanking = true;
+    var T = doc.createElement('div'); T.className = 'gx-thanks gx-thanks--stage'; T.setAttribute('role', 'status');
+    T.innerHTML = '<p class="gx-sr">Your place is confirmed. See you on November 19.</p><button type="button" class="gx-thanks__go">Continue</button>';
+    doc.body.appendChild(T);
+    if (!fromPass) { S2.F = frameEnd(S2.W, S2.H); S2.st.open = 0; S2.st.lift = 1; }
+    S2.st.proj = 0; S2.st.live = 0.7; S2.st.grain = 1;
+    thanksCard(S2);
+    var X = live(); if (X) swish(X, X.c.currentTime + 0.01, 1.0, 0.06);
+    stageHold();
+    var done = false, glint = null, out = null;
+    function reopen() {
+      if (done) return; done = true;
+      log('thanks-reopen');
+      out && out.kill(); glint && glint.kill();
+      var Y = live(); if (Y) swish(Y, Y.c.currentTime + 0.25, 1.3, 0.05);
+      gsap.to(T.querySelector('.gx-thanks__go'), { opacity: 0, duration: 0.3 });
+      gsap.timeline({ onComplete: function () { stageFree(); stageHide(); T.remove(); thanking = false; } })
+        .to(S2.st, { proj: 0, duration: B.rm ? 0 : 0.6, ease: 'power1.in' }, 0)
+        .to(S2.st, { lift: 1, duration: B.rm ? 0 : 1.5, ease: 'power2.inOut' }, B.rm ? 0 : 0.35);
+    }
+    var tl = gsap.timeline();
+    if (fromPass) tl.to(S2.st, { open: 0, duration: B.rm ? 0 : 1.1, ease: 'power2.inOut' }, 0);
+    else tl.to(S2.st, { lift: 0, duration: B.rm ? 0 : 1.0, ease: 'power2.out' }, 0);
+    tl.call(function () { if (window.nblCloseCheckoutModal) window.nblCloseCheckoutModal(); passOut(); }, null, B.rm ? 0 : 1.1)
+      .to(S2.st, { live: 0.25, duration: 1.2, ease: 'sine.out' }, 1.1);
+    if (B.rm) tl.set(S2.st, { proj: 1 }, 0);
+    else tl.add(gsap.timeline()   // the lamp catches as it did at the opening, in one breath
+      .to(S2.st, { proj: 0.55, duration: 0.08, ease: 'none' })
+      .to(S2.st, { proj: 0.1, duration: 0.09, ease: 'none' })
+      .to(S2.st, { proj: 0.85, duration: 0.09, ease: 'none' })
+      .to(S2.st, { proj: 0.3, duration: 0.1, ease: 'none' })
+      .to(S2.st, { proj: 1, duration: 0.24, ease: 'power2.out' }), 1.35);
+    tl.call(function () {
+      T.querySelector('.gx-thanks__go').focus({ preventScroll: true });
+      if (!B.rm) (function loop() { thanksGlints(S2); glint = gsap.delayedCall(1.1 + Math.random() * 0.6, loop); })();
+    }, null, B.rm ? 0 : 2.0);
+    out = gsap.delayedCall(7.5, reopen);
+    T.addEventListener('click', reopen);
+    addEventListener('keydown', function k(e) { if (e.key === 'Escape') { reopen(); removeEventListener('keydown', k); } });
+  }
+
   /* thanks: the reward for buying. The curtain closes, the confirmation is projected on it, then it
      opens again by itself, or sooner on a click, a tap or Escape. Nobody is held behind it. */
-  function thanks() {
+  function thanksCSS() {
     if (doc.querySelector('.gx-thanks')) return;
     var T = doc.createElement('div'); T.className = 'gx-thanks'; T.setAttribute('role', 'status');
     var a = velvet('gx-thanks__half'), b = velvet('gx-thanks__half gx-thanks__half--r');
@@ -1253,6 +1409,7 @@
     addEventListener('keydown', function k(e) { if (e.key === 'Escape') { reopen(); removeEventListener('keydown', k); } });
   }
   GX.debug.thanks = thanks;
+  GX.debug.stage = function () { return STG ? STG.st : null; };
 
   /* ------------------------------------------------------------ boot */
 
