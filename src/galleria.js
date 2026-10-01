@@ -1,9 +1,10 @@
 /*!
- * GalleriaBallroom engine v0.2.1
+ * GalleriaBallroom engine v0.3.0
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
- * (desktop), the house light coming up on the emboss and a pass of foil over the type.
+ * (desktop), the house light coming up on the emboss and a pass of foil over the type. Scene 2:
+ * the carnet de bal, a cream card hung on a cord (its emboss, its swing).
  * Readable source. dist/galleria.min.js is this file run through terser.
  * Loaded by the page's first block, which creates window.GXB. No font files live here.
  * Hash switches for review: #curtain (show the curtain again), #purpose (purpose line in the
@@ -12,7 +13,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.2.1';
+  var VERSION = '0.3.0';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -907,8 +908,11 @@
   // The bevel is kept about 1.25 screen pixels wide whatever the size of the cartouche: in SVG units it
   // would turn soft and blurry on a large desktop. On big screens the light and shadow get 15% more.
   var BEVEL = 1.25;
-  function emboss(id, azimuth) {
-    return '<filter id="' + id + '" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">' +
+  // pal: colours of the light and of the shadow. Oxblood paper by default; the carnet is cream.
+  var OXB = { hi: '.62 .22 .22', sh: '.16 .03 .04' }, CREAM = { hi: '1 1 1', sh: '.4 .27 .18' };
+  function emboss(id, azimuth, pal) {
+    pal = pal || OXB;
+    return '<filter id="' + id + '" data-hi="' + pal.hi + '" data-sh="' + pal.sh + '" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">' +
       '<feGaussianBlur in="SourceAlpha" stdDeviation="1.8" result="h"/>' +
       '<feDiffuseLighting in="h" surfaceScale="4" diffuseConstant="1" lighting-color="#fff" result="l">' +
       '<feDistantLight azimuth="' + azimuth + '" elevation="30"/></feDiffuseLighting>' +
@@ -922,10 +926,11 @@
       f.querySelector('feGaussianBlur').setAttribute('stdDeviation', sig.toFixed(3));
       f.querySelector('feDiffuseLighting').setAttribute('surfaceScale', (4 * sig / 1.8).toFixed(3));
       var m = f.querySelectorAll('feColorMatrix'), h = 1.05 * boost, d = 1.2 * boost;
-      m[0].setAttribute('values', '0 0 0 0 .62 0 0 0 0 .22 0 0 0 0 .22 ' + h.toFixed(3) + ' 0 0 0 ' + (-h / 2).toFixed(3));
-      m[1].setAttribute('values', '0 0 0 0 .16 0 0 0 0 .03 0 0 0 0 .04 ' + (-d).toFixed(3) + ' 0 0 0 ' + (d / 2).toFixed(3));
+      var hi = f.getAttribute('data-hi').split(' '), sh = f.getAttribute('data-sh').split(' ');
+      m[0].setAttribute('values', '0 0 0 0 ' + hi[0] + ' 0 0 0 0 ' + hi[1] + ' 0 0 0 0 ' + hi[2] + ' ' + h.toFixed(3) + ' 0 0 0 ' + (-h / 2).toFixed(3));
+      m[1].setAttribute('values', '0 0 0 0 ' + sh[0] + ' 0 0 0 0 ' + sh[1] + ' 0 0 0 0 ' + sh[2] + ' ' + (-d).toFixed(3) + ' 0 0 0 ' + (d / 2).toFixed(3));
     });
-    GX.debug.emboss = { k: +k.toFixed(3), sigma: +sig.toFixed(3) };
+    if (slot.classList.contains('gx-hero__art')) GX.debug.emboss = { k: +k.toFixed(3), sigma: +sig.toFixed(3) };
   }
   function heroArt() {
     var hero = doc.getElementById('gx-hero');
@@ -953,6 +958,96 @@
       if ('ResizeObserver' in window) new ResizeObserver(function () { fitEmboss(slot, R); }).observe(slot);
     }
     log('hero-art');
+  }
+
+  /* ------------------------------------------------------------ scene 2: the carnet de bal
+     A cream card hung from a cord, with a small blind-embossed cartouche on top, like a seal (white
+     light, warm shadow, as on paper). It moves like a hanging card: a pendulum from the top of the
+     section, the card a beat behind the cord, the tassel behind the card. When it comes into view it
+     is given one push, as if just hung (phones too). On desktop the page's scroll moves it, the
+     pointer brushes it, and it can be taken and pulled aside; let go, it swings back. The springs
+     run only while it is on screen or moving, transform only. */
+
+  function carnet() {
+    var sec = doc.getElementById('gx-carnet');
+    if (!sec) return;
+    var card = sec.querySelector('.gx-carnet__card'), orn = sec.querySelector('.gx-carnet__orn'), R = window.GX_ART && window.GX_ART.rococos;
+    if (orn && R && !orn.firstChild) {
+      orn.innerHTML = '<svg viewBox="0 0 ' + R.w + ' ' + R.h + '" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false"><defs>' +
+        (doc.getElementById('gx-rc') ? '' : '<path id="gx-rc" d="' + R.d + '"/>') + emboss('gx-emb-c', 250, CREAM) + '</defs>' +
+        '<use href="#gx-rc" filter="url(#gx-emb-c)"/></svg>';
+      fitEmboss(orn, R);
+      if ('ResizeObserver' in window) new ResizeObserver(function () { fitEmboss(orn, R); }).observe(orn);
+    }
+    if (B.rm || !card || !window.gsap) return;
+    var hang = sec.querySelector('.gx-carnet__hang'), tas = sec.querySelector('.gx-carnet__tas b');
+    // Three coupled springs, in degrees. th: cord and card swing together from the top of the section
+    // (a pendulum of about 1.4 s that loses its energy slowly). ph: the card tilts a little more than
+    // the cord, a beat late. ps: the tassel answers the card's motion.
+    var C = { th: 0, vth: 0, ph: 0, vph: 0, ps: 0, vps: 0, T: null, y: scrollY, vis: false, run: false, grab: null, tgt: 0 };
+    var W = 2 * Math.PI / 1.4;
+    function origin() {
+      var sr = sec.getBoundingClientRect(), hr = hang.getBoundingClientRect(), cr = card.getBoundingClientRect();
+      hang.style.transformOrigin = '50% ' + Math.round(sr.top - hr.top) + 'px';
+      C.L = Math.max(240, cr.top + cr.height / 2 - sr.top);
+    }
+    origin();
+    card.style.transformOrigin = '50% 0';
+    if (tas) tas.style.transformOrigin = '50% 0';
+    function step() {
+      var T = clock(), dt = C.T == null ? 0 : clamp(T - C.T, 0, 0.05);
+      C.T = T;
+      var target = C.grab ? C.grab.th : 0;
+      if (DESK && !C.grab && dt > 0) target = clamp(-(scrollY - C.y) / dt * 0.0012, -1.6, 1.6);   // the page moving under it
+      C.y = scrollY;
+      var z = C.grab ? 0.9 : 0.11;
+      for (var n = 0, st = dt / 4; n < 4 && dt > 0; n++) {
+        var a = -W * W * (C.th - target) - 2 * z * W * C.vth;
+        C.vth += a * st; C.th += C.vth * st;
+        var pa = -49 * (C.ph - 0.35 * C.th) - 4.2 * C.vph;
+        C.vph += pa * st; C.ph += C.vph * st;
+        var sa = -64 * (C.ps + 0.12 * C.vph) - 2.9 * C.vps;
+        C.vps += sa * st; C.ps += C.vps * st;
+      }
+      hang.style.transform = 'rotate(' + C.th.toFixed(3) + 'deg)';
+      card.style.transform = 'rotate(' + C.ph.toFixed(3) + 'deg)';
+      if (tas) tas.style.transform = 'rotate(' + C.ps.toFixed(3) + 'deg)';
+      var e = Math.abs(C.th) + Math.abs(C.vth) * 0.2 + Math.abs(C.ph) + Math.abs(C.vph) * 0.2 + Math.abs(C.ps);
+      if (e < 0.004 && !C.grab && !(DESK && C.vis)) sleep();   // settled: stop spending frames
+    }
+    function wake() { if (!C.run && !B.rm) { C.run = true; C.T = null; C.y = scrollY; gsap.ticker.add(step); } }
+    function sleep() { if (C.run) { C.run = false; gsap.ticker.remove(step); } }
+    var hung = false;
+    new IntersectionObserver(function (en) {
+      C.vis = en[0].isIntersecting;
+      if (C.vis) { origin(); wake(); if (!hung) { hung = true; C.vth = 5.6; log('carnet'); } }   // just hung on its hook
+      else if (!C.grab) sleep();
+    }, { threshold: 0.3 }).observe(card);
+    GX.debug.carnet = C;
+    if (!DESK) return;
+    // Desktop: brush it with the pointer, or take it and pull it aside; let go and it swings back.
+    var moved = false;
+    card.addEventListener('pointermove', function (e) {
+      if (C.grab || e.pointerType !== 'mouse') return;
+      C.vth += clamp((e.movementX || 0) * 0.06, -2.5, 2.5); wake();
+    });
+    card.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0 || e.pointerType !== 'mouse') return;
+      C.grab = { x0: e.clientX, th: C.th, on: false, id: e.pointerId }; moved = false; wake();
+    });
+    addEventListener('pointermove', function (e) {
+      var g = C.grab;
+      if (!g || e.pointerId !== g.id) return;
+      var dx = e.clientX - g.x0;
+      if (!g.on && Math.abs(dx) > 4) { g.on = true; moved = true; card.classList.add('gx-grabbing'); try { card.setPointerCapture(g.id); } catch (er) {} }
+      if (g.on) { g.th = clamp(Math.atan2(dx, C.L) * 180 / Math.PI, -7, 7); e.preventDefault(); }
+    });
+    var drop = function (e) { if (!C.grab || (e && e.pointerId !== C.grab.id)) return; C.grab = null; card.classList.remove('gx-grabbing'); };
+    addEventListener('pointerup', drop); addEventListener('pointercancel', drop);
+    card.addEventListener('click', function (e) { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);   // a pull is not a click on the address
+    addEventListener('resize', origin);
+    GX.debug.carnetGrab = function (x0, dx) { C.grab = { x0: x0, th: clamp(Math.atan2(dx, C.L) * 180 / Math.PI, -7, 7), on: true, id: -1 }; wake(); };
+    GX.debug.carnetDrop = function () { C.grab = null; };
   }
 
   /* ------------------------------------------------------------ boot */
@@ -1031,5 +1126,5 @@
     log('ready');
   }, function (e) { GX.debug.error = String(e && e.message || e); });
 
-  Promise.all([art, domReady]).then(heroArt);
+  Promise.all([art, domReady, libs.catch(function () {})]).then(function () { heroArt(); carnet(); });
 })();
