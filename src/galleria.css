@@ -1,6 +1,6 @@
-/* GalleriaBallroom engine v0.5.1 stylesheet.
+/* GalleriaBallroom engine v0.5.2 stylesheet.
    The sentinel comes first: the engine waits until it reads back (MD 12.4). */
-:root { --gx-v: "0.5.1"; }
+:root { --gx-v: "0.5.2"; }
 
 #gx-c .gx-gl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 #gx-c .gx-cord { touch-action: none; }

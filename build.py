@@ -3,6 +3,12 @@
 block 1 from its template (polygons from the same geometry as the engine), dist/ by terser.
 Usage: python3 build.py <tag> <svg_limpos_dir>"""
 import sys, re, json, math, subprocess, os
+
+# guard: the engine refuses a stylesheet of another version (its sentinel), so the two must match
+import re as _re
+_js=_re.search(r"var VERSION = '([^']+)'", open('src/galleria.js').read()).group(1)
+_css=_re.search(r'--gx-v: "([^"]+)"', open('src/galleria.css').read()).group(1)
+if _js != _css: raise SystemExit('version mismatch: galleria.js ' + _js + ' vs galleria.css ' + _css)
 TAG, SVG = sys.argv[1], sys.argv[2]
 def svg(f):
     s = open(os.path.join(SVG, f), encoding='utf-8').read()

@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.5.1
+ * GalleriaBallroom engine v0.5.2
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.5.1';
+  var VERSION = '0.5.2';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -1448,7 +1448,7 @@
      line lit behind them. #beams adds searchlights crossing behind it (a variant under test). */
   var BALL_FRAG = [
     'precision highp float;',
-    'uniform vec2 R;uniform float S;uniform float RB;uniform float ROT;uniform float K;uniform float NL;uniform vec4 FL[5];uniform vec3 LA;',
+    'uniform vec2 R;uniform float S;uniform float RB;uniform float ROT;uniform float K;uniform float NL;uniform vec4 FL[5];uniform vec3 LA;uniform float BR;',
     'const vec3 OX=vec3(100.,13.,22.)/255.;const vec3 SH=vec3(42.,12.,16.)/255.;const vec3 CH=vec3(211.,182.,156.)/255.;const vec3 FO=vec3(245.,231.,179.)/255.;',
     'float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
     'vec3 env(vec3 d){',
@@ -1477,7 +1477,7 @@
     '  float gx=g.y*(6.2831853*cos(latc)/NO)/(3.1415927/NL);',     // the grout, the same width both ways
     '  float gm=smoothstep(.035,.11,min(g.x,gx));',
     '  c=mix(SH*.3,c,gm);',
-    '  c*=.45+.55*smoothstep(0.,.55,n.z);',                          // the limb falls into shadow
+    '  c*=(.45+.55*smoothstep(0.,.55,n.z))*BR;',                          // the limb falls into shadow
     '  float a=1.-smoothstep(1.-1.6/RB,1.,sqrt(q));',
     '  col=vec4(c*a,a);}',
     ' for(int k=0;k<5;k++){vec4 F=FL[k];if(F.w>0.){vec2 e=pc-F.xy;float z=F.z;',
@@ -1505,7 +1505,7 @@
     var x = fx.getContext('2d');
     if (!x || !stage) return;
     var PI = Math.PI, NL = DESK ? 22 : 16, LK = [-0.55, 0.45, 0.7];
-    var P = { W: 0, H: 0, dpr: 1, cx: 0, by: 0, rb: 0, S: 0, rings: [], lit: 0, k: 0, on: false, seen: false, rot: 0.6, spin: 0, T: null, sy: scrollY, ig: 0, flash: 0, ray: 0, ignited: false, lamp: { x: -0.55, y: 0.45, tx: -0.55, ty: 0.45 }, ttop: 0, hw0: 0 };
+    var P = { W: 0, H: 0, dpr: 1, cx: 0, by: 0, rb: 0, S: 0, rings: [], lit: 0, k: 0, on: false, seen: false, rot: 0.6, spin: 0, T: null, sy: scrollY, ig: 0, flash: 0, ray: 0, ignited: false, ttop: 0, hw0: 0 };
     (function () { var l = Math.sqrt(LK[0] * LK[0] + LK[1] * LK[1] + LK[2] * LK[2]); LK = LK.map(function (v) { return v / l; }); })();
     // the ball's own WebGL canvas
     var G = null;
@@ -1518,7 +1518,7 @@
           var pr = g.createProgram(); g.attachShader(pr, vs); g.attachShader(pr, fs); g.linkProgram(pr); g.useProgram(pr);
           g.bindBuffer(g.ARRAY_BUFFER, g.createBuffer()); g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
           var ap = g.getAttribLocation(pr, 'p'); g.enableVertexAttribArray(ap); g.vertexAttribPointer(ap, 2, g.FLOAT, false, 0, 0);
-          var U = {}; ['R', 'S', 'RB', 'ROT', 'K', 'NL', 'LA'].forEach(function (n) { U[n] = g.getUniformLocation(pr, n); }); U.FL = g.getUniformLocation(pr, 'FL[0]');
+          var U = {}; ['R', 'S', 'RB', 'ROT', 'K', 'NL', 'LA', 'BR'].forEach(function (n) { U[n] = g.getUniformLocation(pr, n); }); U.FL = g.getUniformLocation(pr, 'FL[0]');
           G = { g: g, U: U, fl: new Float32Array(20) };
         }
       }
@@ -1531,7 +1531,7 @@
       P.cx = s.left - r.left + s.width / 2; P.rb = DESK ? 74 : 46;
       var top = s.top - r.top, pad = DESK ? 64 : 24;
       P.by = Math.max(P.rb + (DESK ? 70 : 40), top - (DESK ? 120 : 96));
-      P.S = Math.round(P.rb * 3.2);
+      P.S = Math.round(P.rb * 4.2);
       bc.style.left = (P.cx - P.S / 2) + 'px'; bc.style.top = (P.by - P.S / 2) + 'px'; bc.style.width = bc.style.height = P.S + 'px';
       bc.width = bc.height = Math.round(P.S * P.dpr);
       if (G) G.g.viewport(0, 0, bc.width, bc.height);
@@ -1562,33 +1562,42 @@
       return rg.pts[rg.pts.length - 1];
     }
     var HEAD = (function () { var c = doc.createElement('canvas'); c.width = c.height = 48; var q = c.getContext('2d'), gr = q.createRadialGradient(24, 24, 0, 24, 24, 24); gr.addColorStop(0, 'rgba(255,251,236,1)'); gr.addColorStop(0.18, 'rgba(250,238,200,.9)'); gr.addColorStop(0.5, 'rgba(245,231,179,.2)'); gr.addColorStop(1, 'rgba(245,231,179,0)'); q.fillStyle = gr; q.fillRect(0, 0, 48, 48); return c; })();
-    var TILE = (function () { var c = doc.createElement('canvas'); c.width = c.height = 32; var q = c.getContext('2d'); q.filter = 'blur(2px)'; q.fillStyle = 'rgba(255,246,222,1)'; q.fillRect(9, 9, 14, 14); return c; })();
     // the key lamp, reflected by each facet onto the wall behind
     function shards(rot, k) {
       if (P.ig <= 0) return;
-      var cr = Math.cos(rot), sr = Math.sin(rot), D = P.H * 0.62, step = 2;
+      // each facet throws a small patch of the key lamp onto the wall behind: sharp-edged, aligned with
+      // the facet grid, stretched sideways where the light rakes the wall, brighter where the facet faces the lamp
+      var cr = Math.cos(rot), sr = Math.sin(rot), D = P.H * 0.62, step = DESK ? 1 : 2, d = P.dpr;
       x.globalCompositeOperation = 'lighter';
-      for (var i = 0; i < NL; i += 1) {
-        var latc = (i + 0.5) / NL * PI - PI / 2, NO = Math.max(6, Math.floor(2 * NL * Math.cos(latc) + 0.5));
+      for (var i = 0; i < NL; i++) {
+        var latc = (i + 0.5) / NL * PI - PI / 2, NO = Math.max(6, Math.floor(2 * NL * Math.cos(latc) + 0.5)), cl = Math.cos(latc);
         for (var j = 0; j < NO; j += step) {
-          var lonc = ((j + 0.5) / NO - 0.5) * PI * 2, cl = Math.cos(latc);
+          var lonc = ((j + 0.5) / NO - 0.5) * PI * 2;
           var tx = cl * Math.sin(lonc) + (h21(i, j) - 0.5) * 0.1, ty = Math.sin(latc) + (h21(j, i + 7) - 0.5) * 0.1, tz = cl * Math.cos(lonc) + (h21(i + 3, j + 5) - 0.5) * 0.1;
           var nl = Math.sqrt(tx * tx + ty * ty + tz * tz); tx /= nl; ty /= nl; tz /= nl;
           var vx = cr * tx + sr * tz, vy = ty, vz = -sr * tx + cr * tz, dl = vx * LK[0] + vy * LK[1] + vz * LK[2];
           if (dl <= 0.05) continue;
           var rx = 2 * dl * vx - LK[0], ry = 2 * dl * vy - LK[1], rz = 2 * dl * vz - LK[2];
-          if (rz > -0.12) continue;
-          var t = D / -rz, px = P.cx + rx * t * P.ig, py = P.by - ry * t * P.ig;
+          if (rz > -0.1) continue;
+          var t = D / -rz, px = P.cx + rx * t, py = P.by - ry * t;
           if (px < -20 || px > P.W + 20 || py < -20 || py > P.H + 20) continue;
-          if ((px - P.cx) * (px - P.cx) + (py - P.by) * (py - P.by) < P.rb * P.rb * 1.3) continue;
-          // the light gathers in a broad band at the height of the ball and thins out above and below it
-          var band = Math.exp(-Math.pow((py - P.by - P.H * 0.12) / (P.H * 0.3), 2));
-          if (band < 0.08) continue;
-          var z = Math.max(3, Math.min(DESK ? 9 : 7, (PI / NL) * t * 0.08)), w = z * 1.9;   // stretched along the sweep
-          x.globalAlpha = k * band * Math.min(0.5, 0.15 + 0.4 * dl) * Math.min(1, 1.6 / (0.4 + t / D));
-          x.drawImage(TILE, px - w, py - z, w * 2, z * 2);
+          if ((px - P.cx) * (px - P.cx) + (py - P.by) * (py - P.by) < P.rb * P.rb * 1.5) continue;
+          var band = Math.exp(-Math.pow((py - P.by - P.H * 0.12) / (P.H * 0.42), 2));
+          if (band < 0.06) continue;
+          var h = Math.max(3, Math.min(DESK ? 8 : 6, (PI / NL) * t * 0.045 + 2.4)), w = h * Math.min(2.4, 1 / Math.sqrt(Math.max(0.18, -rz)));
+          var a = k * P.ig * band * (0.3 + 0.55 * dl) * Math.min(1, 1.6 / (0.4 + t / D));
+          // snapped to device pixels so the edges stay crisp; a one-pixel feather softens them
+          var X0 = Math.round((px - w / 2) * d) / d, Y0 = Math.round((py - h / 2) * d) / d, Wd = Math.round(w * d) / d, Hd = Math.round(h * d) / d;
+          x.globalAlpha = a * 0.3; x.fillStyle = '#E9D3B4'; x.fillRect(X0 - 1 / d, Y0 - 1 / d, Wd + 2 / d, Hd + 2 / d);
+          x.globalAlpha = a; x.fillStyle = '#FFF4DA'; x.fillRect(X0, Y0, Wd, Hd);
         }
       }
+    }
+    function bloom() {   // the ball comes on: a warm halo breathes once behind it, in the room's canvas, never clipped
+      if (P.flash <= 0.01) return;
+      var R = P.rb * 3.4, g = x.createRadialGradient(P.cx, P.by, P.rb * 0.6, P.cx, P.by, R);
+      g.addColorStop(0, 'rgba(245,231,179,' + (0.32 * P.flash).toFixed(3) + ')'); g.addColorStop(0.45, 'rgba(211,182,156,' + (0.1 * P.flash).toFixed(3) + ')'); g.addColorStop(1, 'rgba(211,182,156,0)');
+      x.globalCompositeOperation = 'lighter'; x.globalAlpha = 1; x.fillStyle = g; x.beginPath(); x.arc(P.cx, P.by, R, 0, PI * 2); x.fill();
     }
     function flares(rot) {
       if (!G) return;
@@ -1608,8 +1617,7 @@
         }
       }
       best.sort(function (a, b) { return b[2] - a[2]; });
-      for (var m = 0; m < 5; m++) { var b = m === 4 && P.flash > 0.01 ? [0, P.rb * 0.15, 9] : best[m]; G.fl[m * 4] = b ? b[0] : 0; G.fl[m * 4 + 1] = b ? b[1] : 0; G.fl[m * 4 + 2] = b ? P.rb * (0.65 + 0.45 * Math.min(1, b[2])) : 1; G.fl[m * 4 + 3] = b ? Math.min(1, b[2]) * 0.9 : 0; }
-      if (P.flash > 0.01) { G.fl[18] = P.rb * (1.4 + 1.6 * P.flash); G.fl[19] = P.flash; }
+      for (var m = 0; m < 5; m++) { var b = best[m]; G.fl[m * 4] = b ? b[0] : 0; G.fl[m * 4 + 1] = b ? b[1] : 0; G.fl[m * 4 + 2] = b ? Math.min(P.rb * (0.6 + 0.4 * Math.min(1, b[2])), P.S / 2 - 2 - Math.max(Math.abs(b[0]), Math.abs(b[1]))) : 1; G.fl[m * 4 + 3] = b ? Math.min(1, b[2]) * 0.9 : 0; }
     }
     function rays() {   // the fan lit at the ignition, from the ball to the sides, clear of the words
       if (P.ray <= 0) return;
@@ -1647,12 +1655,11 @@
         P.sy = scrollY;
         P.rot = (P.rot + (PI * 2 / 40 + P.spin) * dt) % (PI * 2);   // accumulated: the turn never jumps
         P.spin *= Math.exp(-dt * 0.9);
-        P.lamp.x += (P.lamp.tx - P.lamp.x) * Math.min(1, dt * 5); P.lamp.y += (P.lamp.ty - P.lamp.y) * Math.min(1, dt * 5);
       }
-      var ln = Math.sqrt(P.lamp.x * P.lamp.x + P.lamp.y * P.lamp.y + 0.49); LK = [P.lamp.x / ln, P.lamp.y / ln, 0.7 / ln];
       var rot = P.rot;
       x.setTransform(P.dpr, 0, 0, P.dpr, 0, 0); x.clearRect(0, 0, P.W, P.H);
       shards(rot, P.k);
+      bloom();
       x.globalCompositeOperation = 'source-over'; x.globalAlpha = 0.55 * P.k; x.strokeStyle = '#D3B69C'; x.lineWidth = 1;
       x.beginPath(); x.moveTo(P.cx, 0); x.lineTo(P.cx, P.by - P.rb); x.stroke();
       crown(T);
@@ -1661,7 +1668,7 @@
       if (G) {
         flares(rot);
         var g2 = G.g, U2 = G.U;
-        g2.uniform2f(U2.R, bc.width, bc.height); g2.uniform1f(U2.S, P.S); g2.uniform1f(U2.RB, P.rb); g2.uniform1f(U2.ROT, rot); g2.uniform1f(U2.K, P.k); g2.uniform1f(U2.NL, NL); g2.uniform3f(U2.LA, LK[0], LK[1], LK[2]);
+        g2.uniform2f(U2.R, bc.width, bc.height); g2.uniform1f(U2.S, P.S); g2.uniform1f(U2.RB, P.rb); g2.uniform1f(U2.ROT, rot); g2.uniform1f(U2.K, P.k); g2.uniform1f(U2.NL, NL); g2.uniform3f(U2.LA, LK[0], LK[1], LK[2]); g2.uniform1f(U2.BR, 0.42 + 0.58 * P.ig);
         g2.uniform4fv(U2.FL, G.fl); g2.clearColor(0, 0, 0, 0); g2.clear(g2.COLOR_BUFFER_BIT); g2.drawArrays(g2.TRIANGLE_STRIP, 0, 4);
       }
     }
@@ -1669,19 +1676,13 @@
     // the climax: the lines meet at the ball, it flares, its light bursts into the room, the fan lights, the words catch it
     function ignite() {
       P.ignited = true; log('pista-ignite');
-      gsap.timeline().to(P, { flash: 1, duration: 0.09, ease: 'power2.out' }).to(P, { flash: 0, duration: 1.5, ease: 'power2.in' });
-      gsap.to(P, { ig: 1, duration: 1.2, ease: 'power3.out' });
+      gsap.timeline().to(P, { flash: 1, duration: 0.35, ease: 'sine.out' }).to(P, { flash: 0, duration: 1.8, ease: 'sine.inOut' });
+      gsap.to(P, { ig: 1, duration: 1.6, ease: 'sine.inOut' });
       gsap.to(P, { ray: 1, duration: 0.9, ease: 'power2.out', delay: 0.08 });
       P.spin = 1.4;
       if (line) line.classList.add('gx-lit');
     }
-    // you hold the lamp (desktop); a click or a tap on the ball gives it a turn
-    sec.addEventListener('pointermove', function (e) {
-      if (e.pointerType !== 'mouse' || !DESK) return;
-      var r = sec.getBoundingClientRect();
-      P.lamp.tx = clamp((e.clientX - r.left - P.cx) / (P.W * 0.45), -1, 1) * 0.95; P.lamp.ty = clamp((P.by - (e.clientY - r.top)) / (P.H * 0.55), -0.5, 0.95);
-    });
-    sec.addEventListener('pointerleave', function () { P.lamp.tx = -0.55; P.lamp.ty = 0.45; });
+    // a click or a tap on the ball gives it a turn; the light always answers the ball, never the pointer
     sec.addEventListener('pointerdown', function (e) {
       var r = sec.getBoundingClientRect(), dx = e.clientX - r.left - P.cx, dy = e.clientY - r.top - P.by;
       if (dx * dx + dy * dy < P.rb * P.rb * 1.4) { P.spin = Math.min(4, P.spin + 2.4); log('pista-spin'); }
