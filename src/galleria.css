@@ -1,6 +1,6 @@
-/* GalleriaBallroom engine v0.1.3 stylesheet.
+/* GalleriaBallroom engine v0.2.0 stylesheet.
    The sentinel comes first: the engine waits until it reads back (MD 12.4). */
-:root { --gx-v: "0.1.3"; }
+:root { --gx-v: "0.2.0"; }
 
 #gx-c .gx-gl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 #gx-c .gx-cord { touch-action: none; }
@@ -23,7 +23,7 @@
 .gx-hero__art {
   position: absolute; left: 50%; top: 50%; z-index: 0;
   width: var(--aw, min(1000px, 70vw)); height: var(--ah, auto); aspect-ratio: 841.89 / 595.28;
-  transform: translate(-50%, -50%); pointer-events: none;
+  transform: translate(-50%, -50%) scale(var(--gs, 1)); pointer-events: none;
 }
 .gx-hero__art svg { display: block; width: 100%; height: 100%; overflow: visible; }
 /* Paper grain over the field and the emboss, under the type (the save the date is printed on textured stock). */
@@ -34,5 +34,21 @@
 
 /* Portrait: the cartouche turns a quarter and frames a column; the engine turns the light with it. */
 @media (orientation: portrait) {
-  .gx-hero__art { transform: translate(-50%, -50%) rotate(90deg); }
+  .gx-hero__art { transform: translate(-50%, -50%) rotate(90deg) scale(var(--gs, 1)); }
+}
+
+/* Scene 1. The follow spot: a colour-dodge gain (base / (1 - g)) with a full core, a soft iris edge
+   and a little spill. Warm lamp: red gains more than green, green more than blue, so the oxblood
+   warms without turning pink and the champagne type reads as high foil under the core. */
+.gx-hero { isolation: isolate; }
+.gx-spot {
+  position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; opacity: 0;
+  width: calc(var(--cw, 1200px) * .62); height: calc(var(--ch, 800px) * .98);
+  mix-blend-mode: color-dodge; will-change: transform, opacity;
+  background: radial-gradient(closest-side, rgb(74, 52, 31), rgb(66, 47, 28) 18%, rgb(64, 45, 27) 44%, rgb(52, 37, 22) 53%, rgb(27, 19, 11) 60%, rgb(10, 7, 4) 68%, rgb(3, 2, 1) 82%, #000);
+}
+/* One pass of foil light over the type, then the class comes off. */
+.gx-sheen {
+  background: linear-gradient(100deg, #D3B69C 0 42%, #FFFCD9 50%, #D3B69C 58% 100%) var(--sx, 100%) 0 / 300% 100% no-repeat;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }

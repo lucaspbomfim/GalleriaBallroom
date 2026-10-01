@@ -1,8 +1,9 @@
 /*!
- * GalleriaBallroom engine v0.1.3
+ * GalleriaBallroom engine v0.2.0
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
- * the tableau opening and the settled frame.
+ * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
+ * (desktop), the house light coming up on the emboss and a pass of foil over the type.
  * Readable source. dist/galleria.min.js is this file run through terser.
  * Loaded by the page's first block, which creates window.GXB. No font files live here.
  * Hash switches for review: #curtain (show the curtain again), #purpose (purpose line in the
@@ -11,7 +12,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.1.3';
+  var VERSION = '0.2.0';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -379,6 +380,7 @@
     var T = clock();
     lastTick = [gsap.globalTimeline.time(), performance.now()];
     follow(T);
+    if (spot) spotTick(T);
     if (mode === 'webgl' && GL) drawGL(T); else if (mode === 'css') drawCSS(T);
   }
 
@@ -779,6 +781,9 @@
     tl.to(cord, { x: legOffset(), duration: RISE_D, ease: 'power2.inOut' }, 'rel+=1.6');
     var R = { t: 0 };
     tl.to(R, { t: RISE_T, duration: RISE_T, ease: 'none', onUpdate: function () { riseAt(R.t); } }, 'rel+=1.6');
+    tl.add(houseLight(true), 'rel+=1.6');
+    tl.add(strike(), 'rel+=' + (1.6 + RISE_D - 0.1));
+    tl.add(sheen(), 'rel+=' + (1.6 + RISE_D + 0.35));
     tl.call(settled);
     // The sax's first note lands on the first frame of the rise. A new timeline counts from the last
     // frame drawn, not from now, so the rise time is read off the GSAP clock and anchored to that frame.
@@ -798,10 +803,88 @@
     }
   }
 
+  /* ------------------------------------------------------------ scene 1: the open tableau
+     House light: while the curtain is closed the emboss sits in half light; it comes up with the
+     rise. Follow spot (desktop only, where there is a mouse to follow): a theatre lamp struck on
+     the title when the curtain settles, then following the pointer as an operator would, a beat
+     behind and overshooting a little; back to the title when the pointer leaves the stage. Its
+     light is a colour-dodge gain, so it lifts what it falls on in proportion, like light on a
+     surface: the oxblood warms toward velvet in light, the relief deepens, the champagne type
+     catches it and reads as foil. No flicker: a lamp, not film. Foil pass: one sweep of light
+     over the type and the GALLERIA logo after the spot is struck. */
+
+  var spot = null;
+  function setupSpot() {
+    var hero = doc.getElementById('gx-hero');
+    if (spot || !hero || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    var el = doc.createElement('div');
+    el.className = 'gx-spot';
+    el.setAttribute('aria-hidden', 'true');
+    hero.appendChild(el);
+    var P = spot = { el: el, hero: hero, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, k: 0, home: true, T: null, placed: false };
+    hero.addEventListener('pointermove', function (e) {
+      if (B.rm || (e.pointerType && e.pointerType !== 'mouse')) return;
+      var h = hero.getBoundingClientRect();
+      P.tx = e.clientX - h.left; P.ty = e.clientY - h.top; P.home = false;
+    });
+    hero.addEventListener('pointerleave', function () { P.home = true; });
+    GX.debug.spot = P;
+  }
+  function spotHome() {
+    var h = spot.hero.getBoundingClientRect(), t = spot.hero.querySelector('.gx-hero__title'), r = t ? t.getBoundingClientRect() : h;
+    return [r.left + r.width / 2 - h.left, r.top + r.height / 2 - h.top];
+  }
+  function spotTick(T) {
+    var P = spot, dt = P.T == null ? 0 : clamp(T - P.T, 0, 0.05);
+    P.T = T;
+    if (P.home || !P.placed) { var a = spotHome(); P.tx = a[0]; P.ty = a[1]; }
+    // the operator keeps the light on the stage: the drapes stand in front of it and take none
+    var hw = P.hero.clientWidth, hh = P.hero.clientHeight;
+    P.tx = clamp(P.tx, hw * 0.2, hw * 0.8); P.ty = clamp(P.ty, hh * 0.16, hh * 0.86);
+    if (!P.placed || B.rm) { P.x = P.tx; P.y = P.ty; P.placed = true; }
+    for (var n = 0, st = dt / 4; n < 4 && dt > 0; n++) {   // the operator: a spring, slightly underdamped
+      P.vx += (-36 * (P.x - P.tx) - 8.6 * P.vx) * st; P.vy += (-36 * (P.y - P.ty) - 8.6 * P.vy) * st;
+      P.x += P.vx * st; P.y += P.vy * st;
+    }
+    var w = P.el.offsetWidth, h = P.el.offsetHeight;
+    P.el.style.transform = 'translate3d(' + (P.x - w / 2).toFixed(1) + 'px,' + (P.y - h / 2).toFixed(1) + 'px,0) scale(' + (0.72 + 0.28 * P.k).toFixed(3) + ')';
+    P.el.style.opacity = P.k.toFixed(3);
+  }
+  function strike() { return spot ? gsap.to(spot, { k: 1, duration: B.rm ? 0 : 1.3, ease: 'power2.out' }) : gsap.timeline(); }
+
+  function sheen() {
+    var tl = gsap.timeline(), hero = doc.getElementById('gx-hero');
+    if (!hero || B.rm) return tl;
+    [].forEach.call(hero.querySelectorAll('.gx-hero__title,.gx-hero__line,.gx-hero__pres,.gx-hero__date,.gx-hero__time'), function (el, i) {
+      var o = { p: 100 };
+      tl.to(o, { p: 0, duration: 1.5, ease: 'power1.inOut',
+        onStart: function () { el.classList.add('gx-sheen'); },
+        onUpdate: function () { el.style.setProperty('--sx', o.p.toFixed(1) + '%'); },
+        onComplete: function () { el.classList.remove('gx-sheen'); el.style.removeProperty('--sx'); },
+        onReverseComplete: function () { el.classList.remove('gx-sheen'); } }, i * 0.07);
+    });
+    var g = hero.querySelector('#gx-foil');
+    if (g) {
+      var stops = g.querySelectorAll('stop'), logo = g.ownerSVGElement, q = { p: -0.15 };
+      tl.to(q, { p: 1.15, duration: 1.5, ease: 'power1.inOut',
+        onStart: function () { logo.style.fill = 'url(#gx-foil)'; },
+        onUpdate: function () { [q.p - 0.12, q.p, q.p + 0.12].forEach(function (v, i) { stops[i + 1].setAttribute('offset', clamp(v, 0, 1).toFixed(3)); }); },
+        onComplete: function () { logo.style.fill = ''; } }, 0);
+    }
+    return tl;
+  }
+  function houseLight(on) {
+    var a = doc.querySelector('.gx-hero__art');
+    if (!a) return gsap.timeline();
+    if (!on) { gsap.set(a, { opacity: 0.22, '--gs': 0.985 }); return gsap.timeline(); }
+    return gsap.to(a, { opacity: 1, '--gs': 1, duration: 2.8, ease: 'power2.out' });
+  }
+
   /* ------------------------------------------------------------ hero art (static, iteration 1) */
 
-  function svgLogo(L) {
+  function svgLogo(L, foil) {
     return '<svg viewBox="0 0 ' + L.w + ' ' + L.h + '" aria-hidden="true" focusable="false">' +
+      (foil ? '<defs><linearGradient id="gx-foil" x1="0" y1="0" x2="1" y2=".25"><stop offset="0" stop-color="#D3B69C"/><stop offset="0" stop-color="#D3B69C"/><stop offset="0" stop-color="#FFFCD9"/><stop offset="0" stop-color="#D3B69C"/><stop offset="1" stop-color="#D3B69C"/></linearGradient></defs>' : '') +
       L.d.map(function (d) { return '<path d="' + d + '"/>'; }).join('') + '</svg>';
   }
   // L is the lit height map: 0.5 on flat ground. Above that becomes light on the edges, below it shadow.
@@ -834,7 +917,7 @@
     [].forEach.call(hero.querySelectorAll('[data-gx-art]'), function (el) {
       var L = LOGO && LOGO[el.getAttribute('data-gx-art')];
       if (!L || el.querySelector('svg')) return;
-      el.insertAdjacentHTML('afterbegin', svgLogo(L));
+      el.insertAdjacentHTML('afterbegin', svgLogo(L, el.getAttribute('data-gx-art') === 'galleria'));
       el.classList.add('gx-has-art');
     });
     var slot = hero.querySelector('.gx-hero__art'), R = window.GX_ART && window.GX_ART.rococos;
@@ -890,6 +973,8 @@
       run(true);
     }
     setupCord();
+    houseLight(false);
+    setupSpot();
     setTimeout(loadOverture, 3000);   // fetch the overture once the curtain is up, out of the way of first paint
     var rt = 0;
     if ('ResizeObserver' in window) {
@@ -918,7 +1003,8 @@
     else {
       GX.debug.mode = B.rm ? 'reduced' : (B.seen ? 'seen' : 'late');
       fit();
-      var place = function () { gsap.set(cord, { x: legOffset() }); if (!B.rm) startSway(); };
+      setupSpot();
+      var place = function () { gsap.set(cord, { x: legOffset() }); if (!B.rm) startSway(); run(true); strike(); if (!B.rm) gsap.delayedCall(0.4, function () { sheen(); }); };
       if (B.state === 'open') place(); else doc.addEventListener('gx:open', place);
     }
     B.onsnd = function (on) {
