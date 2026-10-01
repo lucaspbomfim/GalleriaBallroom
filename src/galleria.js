@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.5.2
+ * GalleriaBallroom engine v0.5.4
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.5.2';
+  var VERSION = '0.5.4';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -1562,12 +1562,24 @@
       return rg.pts[rg.pts.length - 1];
     }
     var HEAD = (function () { var c = doc.createElement('canvas'); c.width = c.height = 48; var q = c.getContext('2d'), gr = q.createRadialGradient(24, 24, 0, 24, 24, 24); gr.addColorStop(0, 'rgba(255,251,236,1)'); gr.addColorStop(0.18, 'rgba(250,238,200,.9)'); gr.addColorStop(0.5, 'rgba(245,231,179,.2)'); gr.addColorStop(1, 'rgba(245,231,179,0)'); q.fillStyle = gr; q.fillRect(0, 0, 48, 48); return c; })();
+    // a reflection's patch: a rounded square of light that fades all the way to its rim; made once at a
+    // high resolution and only ever drawn smaller, so it stays soft without going blurry or pixelated
+    var SOFT = (function () {
+      var n = 96, c = doc.createElement('canvas'); c.width = c.height = n;
+      var q = c.getContext('2d'), im = q.createImageData(n, n), dd = im.data;
+      for (var yy = 0; yy < n; yy++) for (var xx = 0; xx < n; xx++) {
+        var u = Math.abs((xx + 0.5) / n * 2 - 1), v = Math.abs((yy + 0.5) / n * 2 - 1), r = Math.pow(u * u * u + v * v * v, 1 / 3);
+        var e = Math.min(1, Math.max(0, (r - 0.15) / 0.85)), a = 1 - e * e * (3 - 2 * e); a = a * a;
+        var k = (yy * n + xx) * 4; dd[k] = 255; dd[k + 1] = 243; dd[k + 2] = 216; dd[k + 3] = Math.round(255 * a);
+      }
+      q.putImageData(im, 0, 0); return c;
+    })();
     // the key lamp, reflected by each facet onto the wall behind
     function shards(rot, k) {
       if (P.ig <= 0) return;
-      // each facet throws a small patch of the key lamp onto the wall behind: sharp-edged, aligned with
-      // the facet grid, stretched sideways where the light rakes the wall, brighter where the facet faces the lamp
-      var cr = Math.cos(rot), sr = Math.sin(rot), D = P.H * 0.62, step = DESK ? 1 : 2, d = P.dpr;
+      // each facet throws a soft patch of the key lamp onto the wall behind, aligned with the facet grid,
+      // stretched sideways where the light rakes the wall, brighter where the facet faces the lamp
+      var cr = Math.cos(rot), sr = Math.sin(rot), D = P.H * 0.62, step = DESK ? 1 : 2;
       x.globalCompositeOperation = 'lighter';
       for (var i = 0; i < NL; i++) {
         var latc = (i + 0.5) / NL * PI - PI / 2, NO = Math.max(6, Math.floor(2 * NL * Math.cos(latc) + 0.5)), cl = Math.cos(latc);
@@ -1586,10 +1598,8 @@
           if (band < 0.06) continue;
           var h = Math.max(3, Math.min(DESK ? 8 : 6, (PI / NL) * t * 0.045 + 2.4)), w = h * Math.min(2.4, 1 / Math.sqrt(Math.max(0.18, -rz)));
           var a = k * P.ig * band * (0.3 + 0.55 * dl) * Math.min(1, 1.6 / (0.4 + t / D));
-          // snapped to device pixels so the edges stay crisp; a one-pixel feather softens them
-          var X0 = Math.round((px - w / 2) * d) / d, Y0 = Math.round((py - h / 2) * d) / d, Wd = Math.round(w * d) / d, Hd = Math.round(h * d) / d;
-          x.globalAlpha = a * 0.3; x.fillStyle = '#E9D3B4'; x.fillRect(X0 - 1 / d, Y0 - 1 / d, Wd + 2 / d, Hd + 2 / d);
-          x.globalAlpha = a; x.fillStyle = '#FFF4DA'; x.fillRect(X0, Y0, Wd, Hd);
+          var sw = w * 2.3, sh = h * 2.3;   // the patch spreads past its bright middle and fades out
+          x.globalAlpha = a * 0.8; x.drawImage(SOFT, px - sw / 2, py - sh / 2, sw, sh);
         }
       }
     }
@@ -1619,14 +1629,31 @@
       best.sort(function (a, b) { return b[2] - a[2]; });
       for (var m = 0; m < 5; m++) { var b = best[m]; G.fl[m * 4] = b ? b[0] : 0; G.fl[m * 4 + 1] = b ? b[1] : 0; G.fl[m * 4 + 2] = b ? Math.min(P.rb * (0.6 + 0.4 * Math.min(1, b[2])), P.S / 2 - 2 - Math.max(Math.abs(b[0]), Math.abs(b[1]))) : 1; G.fl[m * 4 + 3] = b ? Math.min(1, b[2]) * 0.9 : 0; }
     }
-    function rays() {   // the fan lit at the ignition, from the ball to the sides, clear of the words
+    // where a ray from (ox, oy) along (dx, dy) meets the segment A-B (Infinity if it does not)
+    function hit(ox, oy, dx, dy, A, Bp) {
+      var ex = Bp[0] - A[0], ey = Bp[1] - A[1], den = dx * ey - dy * ex;
+      if (Math.abs(den) < 1e-9) return Infinity;
+      var t = ((A[0] - ox) * ey - (A[1] - oy) * ex) / den, u = ((A[0] - ox) * dy - (A[1] - oy) * dx) / den;
+      return u >= 0 && u <= 1 && t > 0 ? t : Infinity;
+    }
+    // the fan lit at the ignition: every ray starts inside the inner arch, below its top line, and stops
+    // just short of the first line it would cross (a step, a wall) or of the words
+    function rays() {
       if (P.ray <= 0) return;
+      var inner = P.rings.filter(function (rg) { return rg.k === 0; }), segs = [];
+      if (!inner.length) return;
+      inner.forEach(function (rg) { for (var m = 1; m < rg.pts.length; m++) segs.push([rg.pts[m - 1], rg.pts[m]]); });
+      var yt = inner[0].pts[inner[0].pts.length - 1][1];
       x.globalCompositeOperation = 'lighter'; x.strokeStyle = '#F5E7B3';
       for (var sd = -1; sd <= 1; sd += 2) for (var m = 0; m < 7; m++) {
-        var a = (10 + m * 5.5) * PI / 180, ca = Math.cos(a), sa = Math.sin(a), r0 = P.rb * 1.25;
-        var lim = Math.min(P.hw0 * 0.92 / ca, (P.ttop - 14 - P.by) / sa), len = r0 + (lim - r0) * P.ray;
-        if (lim <= r0) continue;
-        x.globalAlpha = 0.07; x.lineWidth = 5; x.beginPath(); x.moveTo(P.cx + sd * ca * r0, P.by + sa * r0); x.lineTo(P.cx + sd * ca * len, P.by + sa * len); x.stroke();
+        var a = (14 + m * 7) * PI / 180, dx = sd * Math.cos(a), dy = Math.sin(a), ox = P.cx, oy = P.by;
+        var t0 = Math.max(P.rb * 1.12, (yt + 8 - oy) / dy), t1 = (P.ttop - 16 - oy) / dy;
+        segs.forEach(function (sg) { var t = hit(ox, oy, dx, dy, sg[0], sg[1]); if (t > t0 && t < t1) t1 = t; });
+        t1 -= 10;
+        if (t1 - t0 < 12) continue;
+        var tl = t0 + (t1 - t0) * P.ray;
+        x.beginPath(); x.moveTo(ox + dx * t0, oy + dy * t0); x.lineTo(ox + dx * tl, oy + dy * tl);
+        x.globalAlpha = 0.07; x.lineWidth = 5; x.stroke();
         x.globalAlpha = 0.42 - m * 0.03; x.lineWidth = 1; x.stroke();
       }
     }
