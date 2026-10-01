@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.3.0
+ * GalleriaBallroom engine v0.3.1
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.3.0';
+  var VERSION = '0.3.1';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -984,7 +984,7 @@
     // Three coupled springs, in degrees. th: cord and card swing together from the top of the section
     // (a pendulum of about 1.4 s that loses its energy slowly). ph: the card tilts a little more than
     // the cord, a beat late. ps: the tassel answers the card's motion.
-    var C = { th: 0, vth: 0, ph: 0, vph: 0, ps: 0, vps: 0, T: null, y: scrollY, vis: false, run: false, grab: null, tgt: 0 };
+    var C = { th: 0, vth: 0, ph: 0, vph: 0, ps: 0, vps: 0, yo: 0, vyo: 0, T: null, y: scrollY, vis: false, run: false, grab: null };
     var W = 2 * Math.PI / 1.4;
     function origin() {
       var sr = sec.getBoundingClientRect(), hr = hang.getBoundingClientRect(), cr = card.getBoundingClientRect();
@@ -997,22 +997,25 @@
     function step() {
       var T = clock(), dt = C.T == null ? 0 : clamp(T - C.T, 0, 0.05);
       C.T = T;
-      var target = C.grab ? C.grab.th : 0;
+      var g = C.grab && C.grab.on ? C.grab : null, target = g ? g.th : 0;
       if (DESK && !C.grab && dt > 0) target = clamp(-(scrollY - C.y) / dt * 0.0012, -1.6, 1.6);   // the page moving under it
       C.y = scrollY;
-      var z = C.grab ? 0.9 : 0.11;
+      // held: the grabbed point stays under the pointer (stiff, critically damped); free: a slow pendulum
+      var w = g ? 26 : W, z = g ? 0.95 : 0.11, wy = g ? 26 : 10, zy = g ? 0.95 : 0.3, ytgt = g ? g.y : 0;
       for (var n = 0, st = dt / 4; n < 4 && dt > 0; n++) {
-        var a = -W * W * (C.th - target) - 2 * z * W * C.vth;
+        var a = -w * w * (C.th - target) - 2 * z * w * C.vth;
         C.vth += a * st; C.th += C.vth * st;
+        var ya = -wy * wy * (C.yo - ytgt) - 2 * zy * wy * C.vyo;
+        C.vyo += ya * st; C.yo += C.vyo * st;
         var pa = -49 * (C.ph - 0.35 * C.th) - 4.2 * C.vph;
         C.vph += pa * st; C.ph += C.vph * st;
         var sa = -64 * (C.ps + 0.12 * C.vph) - 2.9 * C.vps;
         C.vps += sa * st; C.ps += C.vps * st;
       }
-      hang.style.transform = 'rotate(' + C.th.toFixed(3) + 'deg)';
+      hang.style.transform = 'translateY(' + C.yo.toFixed(2) + 'px) rotate(' + C.th.toFixed(3) + 'deg)';
       card.style.transform = 'rotate(' + C.ph.toFixed(3) + 'deg)';
       if (tas) tas.style.transform = 'rotate(' + C.ps.toFixed(3) + 'deg)';
-      var e = Math.abs(C.th) + Math.abs(C.vth) * 0.2 + Math.abs(C.ph) + Math.abs(C.vph) * 0.2 + Math.abs(C.ps);
+      var e = Math.abs(C.th) + Math.abs(C.vth) * 0.2 + Math.abs(C.ph) + Math.abs(C.vph) * 0.2 + Math.abs(C.ps) + Math.abs(C.yo) * 0.1 + Math.abs(C.vyo) * 0.02;
       if (e < 0.004 && !C.grab && !(DESK && C.vis)) sleep();   // settled: stop spending frames
     }
     function wake() { if (!C.run && !B.rm) { C.run = true; C.T = null; C.y = scrollY; gsap.ticker.add(step); } }
@@ -1025,29 +1028,48 @@
     }, { threshold: 0.3 }).observe(card);
     GX.debug.carnet = C;
     if (!DESK) return;
-    // Desktop: brush it with the pointer, or take it and pull it aside; let go and it swings back.
+    // Desktop: brush it with the pointer, or take hold of it. Held, the point you grabbed stays under
+    // the pointer: aside up to about 12 degrees, up and down up to 40 px against the give of the cord.
+    // Let go and the speed of your hand goes into the swing; the cord brings it back.
     var moved = false;
+    function hold(x, y) {
+      var sr = sec.getBoundingClientRect();
+      C.grab = { x0: x, y0: y, Lg: Math.max(160, y - sr.top), th0: C.th, th: C.th, y: C.yo, on: false, t: clock(), vth: 0, vy: 0 };
+      moved = false; wake();
+    }
+    function pull(x, y) {
+      var g = C.grab;
+      if (!g) return;
+      var dx = x - g.x0, dy = y - g.y0;
+      if (!g.on && Math.sqrt(dx * dx + dy * dy) > 4) { g.on = true; moved = true; card.classList.add('gx-grabbing'); }
+      if (!g.on) return;
+      // a positive CSS rotation about the top carries the card to the left, so the angle is the negative of the pull
+      var th = clamp(g.th0 - Math.atan2(dx, g.Lg) * 180 / Math.PI, -12, 12), yy = 40 * Math.tanh(dy / 120);
+      var T = clock(), dt = Math.max(0.004, T - g.t);
+      g.vth = 0.5 * g.vth + 0.5 * (th - g.th) / dt; g.vy = 0.5 * g.vy + 0.5 * (yy - g.y) / dt;
+      g.th = th; g.y = yy; g.t = T;
+    }
+    function release() {
+      var g = C.grab;
+      if (!g) return;
+      C.grab = null; card.classList.remove('gx-grabbing');
+      if (g.on && clock() - g.t < 0.08) { C.vth = clamp(g.vth, -50, 50); C.vyo = clamp(g.vy, -400, 400); }   // a throw, kept within about 12 degrees of swing
+    }
     card.addEventListener('pointermove', function (e) {
       if (C.grab || e.pointerType !== 'mouse') return;
-      C.vth += clamp((e.movementX || 0) * 0.06, -2.5, 2.5); wake();
+      C.vth -= clamp((e.movementX || 0) * 0.06, -2.5, 2.5); wake();
     });
     card.addEventListener('pointerdown', function (e) {
       if (e.button !== 0 || e.pointerType !== 'mouse') return;
-      C.grab = { x0: e.clientX, th: C.th, on: false, id: e.pointerId }; moved = false; wake();
+      e.preventDefault();   // no text selection; a click on the address still goes through
+      hold(e.clientX, e.clientY);
+      try { card.setPointerCapture(e.pointerId); } catch (er) {}
     });
-    addEventListener('pointermove', function (e) {
-      var g = C.grab;
-      if (!g || e.pointerId !== g.id) return;
-      var dx = e.clientX - g.x0;
-      if (!g.on && Math.abs(dx) > 4) { g.on = true; moved = true; card.classList.add('gx-grabbing'); try { card.setPointerCapture(g.id); } catch (er) {} }
-      if (g.on) { g.th = clamp(Math.atan2(dx, C.L) * 180 / Math.PI, -7, 7); e.preventDefault(); }
-    });
-    var drop = function (e) { if (!C.grab || (e && e.pointerId !== C.grab.id)) return; C.grab = null; card.classList.remove('gx-grabbing'); };
-    addEventListener('pointerup', drop); addEventListener('pointercancel', drop);
+    addEventListener('pointermove', function (e) { if (C.grab && e.pointerType === 'mouse') pull(e.clientX, e.clientY); });
+    addEventListener('pointerup', release); addEventListener('pointercancel', release);
     card.addEventListener('click', function (e) { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);   // a pull is not a click on the address
     addEventListener('resize', origin);
-    GX.debug.carnetGrab = function (x0, dx) { C.grab = { x0: x0, th: clamp(Math.atan2(dx, C.L) * 180 / Math.PI, -7, 7), on: true, id: -1 }; wake(); };
-    GX.debug.carnetDrop = function () { C.grab = null; };
+    GX.debug.carnetHold = hold; GX.debug.carnetPull = pull; GX.debug.carnetRelease = release;
   }
 
   /* ------------------------------------------------------------ boot */
