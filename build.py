@@ -33,7 +33,7 @@ def f(x): return ('%.1f' % x).rstrip('0').rstrip('.') + '%' if x else '0'
 def poly(F, closed=False):
     pts = ['0 0', '100% 0', '100% 100%']
     Py, a = F[1], F[2]
-    vs = [1] + [a + (Py - a) * s for s in (1, .62, .36, .16, 0)]
+    vs = [1] + [a + (Py - a) * s for s in (1, .55, .22, 0)]
     for v in vs: pts.append('0 100%' if closed else f(edge(v, 1, F) * 100) + ' ' + f(v * 100))
     return ','.join(pts)
 L, P = [.86, .42, .06], [.90, .30, .045]

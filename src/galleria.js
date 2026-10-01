@@ -1,15 +1,17 @@
 /*!
- * GalleriaBallroom engine v0.1.0
+ * GalleriaBallroom engine v0.1.1
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
- * Scene 0: the velvet curtain in WebGL, the projector, the cord, the three knocks,
- * the tableau opening and the settled frame.
+ * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, three taps on
+ * a champagne flute, the tableau opening and the settled frame.
  * Readable source. dist/galleria.min.js is this file run through terser.
  * Loaded by the page's first block, which creates window.GXB. No font files live here.
+ * Hash switches for review: #curtain (show the curtain again), #purpose (purpose line in the
+ * projection), #musicbox (second sound palette). They combine: #curtain-purpose-musicbox.
  */
 (function () {
   'use strict';
 
-  var VERSION = '0.1.0';
+  var VERSION = '0.1.1';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -21,12 +23,14 @@
   };
   var DIST = ((doc.currentScript && doc.currentScript.src) || '').replace(/[^/]*$/, '');
   var GSAP = 'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/';
+  var HASH = location.hash || '';
 
   var curtain = doc.getElementById('gx-c');
   if (!curtain) return;
   var halves = [].slice.call(curtain.querySelectorAll('.gx-h'));
   var cord = curtain.querySelector('.gx-cord');
   var sway = curtain.querySelector('.gx-sw');
+  var bulb = curtain.querySelector('.gx-tas b');
   var pull = curtain.querySelector('.gx-pull');
 
   /* ------------------------------------------------------------ helpers */
@@ -56,32 +60,38 @@
     });
   }
   function px(name) { return parseFloat(curtain.style.getPropertyValue(name)) || 0; }
+  // One clock for the shader, the knocks and the springs. Review renders freeze it (GX_CLOCK) to step frames.
+  function clock() { return window.GX_CLOCK != null ? window.GX_CLOCK : performance.now() / 1000; }
+  function hz(n) { var x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+  function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+  function smooth(x) { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); }
 
   /* ------------------------------------------------------------ tableau geometry
-     One half of the curtain, in half-local units: u from the centre seam (0) to the
-     outer edge (1), v from the top (0) to the floor (1). The inner bottom corner
-     travels up and out along the diagonal; the inner edge goes from a straight line
-     (the inverted V of the first moment) to an elliptical arch (the proscenium), and
-     the fabric left below the pick-up point hangs as a side leg. */
+     One half of the curtain, in half-local units: u from the centre seam (0) to the outer
+     edge (1), v from the top (0) to the floor (1). The inner bottom corner travels up and out
+     along the diagonal; the inner edge goes from a straight line (the inverted V of the first
+     moment) to an elliptical arch (the proscenium); the cloth below the pick-up point hangs as
+     a leg. While it moves, the middle of the edge lags behind the lines (sag); when it stops,
+     the legs swing and settle (swing). */
 
   function frameEnd(w, h) { return w < h ? [0.90, 0.30, 0.045] : [0.86, 0.42, 0.06]; }
 
-  function edgeAt(v, t, F) {
+  function edgeAt(v, t, F, sag, swing) {
     if (t <= 0) return 0;
     var Px = F[0] * Math.pow(t, 0.85), Py = 1 - (1 - F[1]) * t, a = F[2] * t;
     if (v < a) return 0;
     if (v < Py) {
       var s = (v - a) / Math.max(Py - a, 1e-4);
       var arch = Math.sqrt(Math.max(0, 1 - (1 - s) * (1 - s)));
-      return Px * (s + (arch - s) * Math.min(t, 1));
+      return Math.max(0, Px * (s + (arch - s) * Math.min(t, 1)) - (sag || 0) * Px * 0.16 * Math.sin(Math.PI * s));
     }
-    return Px;
+    return Px * (1 + (swing || 0) * (v - Py) / Math.max(1 - Py, 1e-4));
   }
 
-  function polygonAt(t, F) {
+  function polygonAt(t, F, sag, swing) {
     var Py = 1 - (1 - F[1]) * t, a = F[2] * t;
     var p = ['0 0', '100% 0', '100% 100%'];
-    function pt(v) { p.push((edgeAt(v, t, F) * 100).toFixed(3) + '% ' + (v * 100).toFixed(3) + '%'); }
+    function pt(v) { p.push((edgeAt(v, t, F, sag, swing) * 100).toFixed(3) + '% ' + (v * 100).toFixed(3) + '%'); }
     pt(1);
     for (var i = 0; i <= 24; i++) pt(a + (Py - a) * (1 - i / 24));
     return 'polygon(' + p.join(',') + ')';
@@ -89,20 +99,21 @@
 
   /* ------------------------------------------------------------ scene state */
 
-  var S = { open: 0, lift: 0, live: 0, grain: 0, proj: 0 };
+  var S = { open: 0, lift: 0, live: 0, grain: 0, proj: 0, sag: 0, swing: 0 };
   var sparks = [{ w: 0 }, { w: 0 }, { w: 0 }];
   var kicks = [];
   var VW = { w: 0, h: 0 };
   var PW = [64, 173];
   var mode = null;          // 'webgl' | 'css'
   var drag = null;
+  var dragging = false;
   var swayTween = null;
   var lastSeg = 0;
   var lastPointer = 0;
   var revealed = false;
 
-  // A knock gives the bar a jolt and sends a ripple through the folds; both decay.
-  function kick(s) { kicks.push([performance.now() / 1000, s]); if (kicks.length > 16) kicks.shift(); }
+  // A tap gives the bar a small jolt and sends a ripple through the folds; both decay.
+  function kick(s) { kicks.push([clock(), s]); if (kicks.length > 16) kicks.shift(); }
   function shake(T) {
     var j = 0, r = 0;
     for (var i = 0; i < kicks.length; i++) {
@@ -114,11 +125,54 @@
     return [j, r];
   }
 
+  /* ------------------------------------------------------------ springs
+     The cloth follows the hand through springs, so it lags, overshoots a little and settles
+     instead of being glued to the finger. The cord comes back on its own spring when let go,
+     and the tassel skirt has a looser one: it swings and its threads flare with speed.
+     Each spring is [value, velocity, target]. */
+
+  var SP = { o: [0, 0, 0], l: [0, 0, 0], c: [0, 0, 0], k: [0, 0, 0], f: [1, 0, 1], s: [1, 0, 1], T: null, y: 0, x: 0, landed: true };
+  function spring(s, w, z, dt) { var a = -w * w * (s[0] - s[2]) - 2 * z * w * s[1]; s[1] += a * dt; s[0] += s[1] * dt; }
+
+  function follow(T) {
+    var dt = SP.T == null ? 0 : clamp(T - SP.T, 0, 0.05);
+    SP.T = T;
+    if (!cord) return;
+    var y = gsap.getProperty(cord, 'y') || 0, x = gsap.getProperty(cord, 'x') || 0;
+    var vy = dt > 0 ? (y - SP.y) / dt : 0, vx = dt > 0 ? (x - SP.x) / dt : 0;
+    SP.y = y; SP.x = x;
+    SP.k[2] = clamp(-vx * 0.09 + vy * 0.006, -12, 12);          // sideways motion swings it
+    SP.f[2] = 1 + clamp(Math.abs(vy) * 0.0004, 0, 0.18);         // speed fans the threads out
+    SP.s[2] = 1 + clamp(-vy * 0.0005, -0.06, 0.14);              // going up, the skirt trails and stretches
+    var st = dt / 4;
+    for (var n = 0; n < 4 && dt > 0; n++) {      // substeps keep the springs stable at low frame rates
+      if (!B.state) {
+        spring(SP.o, 12, 0.5, st);
+        spring(SP.l, 12, 0.5, st);
+        if (!dragging) spring(SP.c, 17, 0.2, st);
+      }
+      spring(SP.k, 8, 0.2, st);
+      spring(SP.f, 12, 0.3, st);
+      spring(SP.s, 14, 0.28, st);
+    }
+    if (!B.state) {
+      if (!dragging && dt > 0) { gsap.set(cord, { y: SP.c[0] }); SP.y = SP.c[0]; }
+      if (SP.o[0] < 0 && SP.o[1] < -0.05 && !SP.landed) { kick(0.25); SP.landed = true; }   // the hem lands
+      if (SP.o[0] > 0.01) SP.landed = false;
+      S.open = Math.max(0, SP.o[0]);
+      S.lift = Math.max(0, SP.l[0]);
+    }
+    if (bulb) {
+      bulb.style.setProperty('--sk', SP.k[0].toFixed(2) + 'deg');
+      bulb.style.setProperty('--sf', SP.f[0].toFixed(3));
+      bulb.style.setProperty('--sy', SP.s[0].toFixed(3));
+    }
+  }
+
   /* ------------------------------------------------------------ WebGL velvet
-     The rest frame (live = grain = projector = open = lift = 0) reproduces the
-     first-frame CSS of block 1 exactly: same stops, same sRGB interpolation,
-     premultiplied like CSS gradients, same layer order. That is what makes the
-     CSS to WebGL swap invisible. Everything else fades in after the swap. */
+     The rest frame (live = grain = projector = open = lift = 0) reproduces the first-frame CSS
+     of block 1 exactly: same stops, same alphas in /255, premultiplied like CSS gradients, same
+     layer order. That keeps the CSS to WebGL swap invisible. Everything else fades in after it. */
 
   var VERT = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
   var FRAG = [
@@ -128,7 +182,7 @@
     'precision mediump float;',
     '#endif',
     'uniform vec2 R;uniform vec2 V;uniform float T;uniform vec2 P;uniform float O;uniform float L;',
-    'uniform vec2 K;uniform float LV;uniform float GR;uniform float PJ;uniform vec3 F;',
+    'uniform vec2 K;uniform float LV;uniform float GR;uniform float PJ;uniform vec3 F;uniform vec2 SG;uniform vec4 PF;',
     'uniform sampler2D S0;uniform sampler2D S1;uniform vec4 SP[3];',
     'const vec3 C0=vec3(42.,12.,16.)/255.;',   // velvet in shadow #2A0C10
     'const vec3 C1=vec3(100.,13.,22.)/255.;',  // oxblood #640D16
@@ -147,7 +201,9 @@
     // tableau: covered when u lies outside the inner edge
     ' float e=0.,cov=1.;',
     ' if(O>0.){float Px=F.x*pow(O,.85),Py=1.-(1.-F.y)*O,a=F.z*O;',
-    '  if(v>=a){if(v<Py){float s=(v-a)/max(Py-a,1e-4);e=Px*mix(s,sqrt(max(0.,1.-(1.-s)*(1.-s))),min(O,1.));}else e=Px;}',
+    '  if(v>=a){if(v<Py){float s=(v-a)/max(Py-a,1e-4);e=Px*mix(s,sqrt(max(0.,1.-(1.-s)*(1.-s))),min(O,1.));',
+    '   e=max(0.,e-SG.x*Px*.16*sin(3.14159*s));}',
+    '  else e=Px*(1.+SG.y*(v-Py)/max(1.-Py,1e-4));}',
     '  float aa=.9/(W*.5);cov=smoothstep(e-aa,e+aa,u);}',
     ' float hem=H*(1.-L)-K.x*H*.004;',
     ' if(L>0.||K.x!=0.)cov*=1.-smoothstep(hem-.8,hem+.8,y);',
@@ -158,7 +214,7 @@
     ' float ph=fract(xf/P.x);',
     ' vec3 c=pl(ph);',
     ' float b1=fract(xf/P.y);c=ov(c,C0,(102./255.)*(1.-abs(2.*b1-1.)));',
-        // gathered cloth: deeper folds, a rolled edge in shadow with a thread of sheen
+    // gathered cloth: deeper folds, a rolled edge in shadow with a thread of sheen
     ' if(e>0.){float k=1./(1.-e);c=clamp(mix(C1,c,min(1.+.45*(k-1.),1.8)),0.,1.);',
     '  float dp=(u-e)*W*.5;c=mix(C0,c,.2+.8*smoothstep(0.,18.,dp));',
     '  c+=(C2-C0)*.55*exp(-pow((dp-10.)/4.5,2.))*smoothstep(0.,.12,O);}',
@@ -172,10 +228,12 @@
     ' else if(by<.07){float a2=mix(128./255.,46./255.,(by-.016)/.054);rb=vec4(C2*a2,a2);}',
     ' else if(by<.22){float a3=mix(46./255.,0.,(by-.07)/.15);rb=vec4(C2*a3,a3);}',
     ' c=rb.rgb+c*(1.-rb.a);',
-    // the projector: the title lands on the pleats, bent by their depth, brighter on the crests
+    // the projector: the title lands on the pleats, bent by their depth, brighter on the crests;
+    // PF carries the lamp flicker (x), the halo flicker (y) and the gate weave (z, w)
     ' if(PJ>0.){float dep=-cos(6.28318*ph);float fc=.52+.48*(.5+.5*dep);',
-    '  vec2 q=vec2((x+dep*P.x*.075*LV)/W,y/H);float sh=texture2D(S0,q).a,hl=texture2D(S1,q).a;',
-    '  c+=PJ*(CH*sh*fc*1.05+FO*sh*sh*fc*.22+vec3(.55,.16,.14)*hl*.85*fc);',
+    '  vec2 q=vec2((x+dep*P.x*.075*LV+PF.z)/W,(y+PF.w)/H);float sh=texture2D(S0,q).a,hl=texture2D(S1,q).a;',
+    '  float tr=.72+.28*clamp(dot(c,vec3(.299,.587,.114))*4.,0.,1.);',
+    '  c+=PJ*(PF.x*tr*(CH*sh*fc*1.05+FO*sh*sh*fc*.22)+PF.y*vec3(.55,.16,.14)*hl*.85*fc);',
     '  for(int i=0;i<3;i++){vec4 s=SP[i];if(s.w>0.){vec2 d=vec2(x,y)-s.xy;float z=s.z;',
     '   float st=exp(-pow(d.y/(z*.07),2.))*max(0.,1.-abs(d.x)/z)+exp(-pow(d.x/(z*.07),2.))*max(0.,1.-abs(d.y)/z);',
     '   st=st*.9+exp(-dot(d,d)/(z*z*.02));c+=FO*st*s.w*PJ;}}}',
@@ -222,7 +280,7 @@
     g.enableVertexAttribArray(ap);
     g.vertexAttribPointer(ap, 2, g.FLOAT, false, 0, 0);
     var U = {};
-    ['R', 'V', 'T', 'P', 'O', 'L', 'K', 'LV', 'GR', 'PJ', 'F', 'S0', 'S1'].forEach(function (n) { U[n] = g.getUniformLocation(pr, n); });
+    ['R', 'V', 'T', 'P', 'O', 'L', 'K', 'LV', 'GR', 'PJ', 'F', 'SG', 'PF', 'S0', 'S1'].forEach(function (n) { U[n] = g.getUniformLocation(pr, n); });
     U.SP = g.getUniformLocation(pr, 'SP[0]');
     function tex(unit) {
       var t = g.createTexture();
@@ -260,9 +318,19 @@
     GL.g.viewport(0, 0, GL.cv.width, GL.cv.height);
   }
 
+  // A film projector: the shutter breathes at 24 frames a second, the lamp sags now and then,
+  // a frame drops out, the gate weaves a fraction of a pixel. Light and halo flicker apart.
+  function flicker(T) {
+    var fr = Math.floor(T * 24), a = hz(fr), b = hz(fr + 911), c = hz(Math.floor(T * 2.5) + 77);
+    var k = 0.9 + 0.1 * a - 0.05 * (0.5 + 0.5 * Math.sin(T * 1.9));
+    if (b > 0.972) k *= 0.6 + 0.15 * a;
+    if (c > 0.9) k *= 0.86;
+    return [k, 0.7 + 0.45 * hz(fr + 31) * (0.6 + 0.4 * k), (hz(Math.floor(T * 12) + 5) - 0.5) * 0.7, (hz(Math.floor(T * 12) + 9) - 0.5) * 0.5];
+  }
+
   var spData = new Float32Array(12);
   function drawGL(T) {
-    var g = GL.g, U = GL.U, sk = shake(T), F = frameEnd(VW.w, VW.h);
+    var g = GL.g, U = GL.U, sk = shake(T), F = frameEnd(VW.w, VW.h), f = flicker(T);
     g.uniform2f(U.R, GL.cv.width, GL.cv.height);
     g.uniform2f(U.V, VW.w, VW.h);
     g.uniform1f(U.T, T % 1000);
@@ -274,6 +342,8 @@
     g.uniform1f(U.GR, S.grain);
     g.uniform1f(U.PJ, S.proj);
     g.uniform3f(U.F, F[0], F[1], F[2]);
+    g.uniform2f(U.SG, S.sag, S.swing);
+    g.uniform4f(U.PF, f[0], f[1], f[2], f[3]);
     for (var i = 0; i < 3; i++) {
       var s = sparks[i];
       spData[i * 4] = s.x || 0; spData[i * 4 + 1] = s.y || 0; spData[i * 4 + 2] = s.z || 1; spData[i * 4 + 3] = s.w || 0;
@@ -288,24 +358,25 @@
   function drawCSS(T) {
     var sk = shake(T);
     var ty = (sk[0] * 2.2).toFixed(2), sx = (sk[1] * 0.35).toFixed(3);
-    var cp = S.open > 0 ? polygonAt(S.open, frameEnd(VW.w, VW.h)) : '';
+    var cp = S.open > 0 ? polygonAt(S.open, frameEnd(VW.w, VW.h), S.sag, S.swing) : '';
     halves.forEach(function (h) {
       h.style.transform = (h.classList.contains('gx-l') ? 'scaleX(-1) ' : '') + 'translateY(' + ty + 'px) skewX(' + sx + 'deg)';
-      if (cp) h.style.clipPath = h.style.webkitClipPath = cp;
+      h.style.clipPath = h.style.webkitClipPath = cp;
     });
   }
 
   function toCSS() {
     if (mode === 'css') return;
     mode = GX.debug.mode = 'css';
-    if (GL && GL.cv.parentNode) GL.cv.parentNode.removeChild(GL.cv);
+    if (GL && GL.cv.parentNode) GL.cv.style.display = 'none';
     GL = null;
     halves.forEach(function (h) { h.style.visibility = ''; });
     curtain.style.background = '';
   }
 
   function tick() {
-    var T = performance.now() / 1000;
+    var T = clock();
+    follow(T);
     if (mode === 'webgl' && GL) drawGL(T); else if (mode === 'css') drawCSS(T);
   }
 
@@ -345,7 +416,7 @@
   // Credits in the order of section 7.4: GALLERIA, THANKSGIVING BALL, (purpose line),
   // PRESENTED BY + Beau Monde, NOVEMBER 19, 6 PM.
   var PURPOSE = 'A NIGHT TO CELEBRATE THE RELEASE OF THE NEWEST ISSUE OF GALLERIA MAGAZINE';
-  var proj = { pts: [], purpose: window.GX_PURPOSE === true };
+  var proj = { pts: [], purpose: window.GX_PURPOSE === true || /purpose/.test(HASH) };
 
   function buildProjection(tt) {
     var W = VW.w, H = VW.h, por = W < H, cx = W / 2;
@@ -361,7 +432,7 @@
     var disp = tt ? 'tt-modernoir' : '"Lexend Peta"';
     var dw = tt ? 300 : 400;
     var FT = por ? W * 0.15 : Math.min(W * 0.08, H * 0.14);
-    var fs = por ? 10 : Math.max(11, Math.min(13, W * 0.0085));
+    var fs = por ? 10 : Math.max(11, Math.min(14, W * 0.0085));
     var gW = por ? W * 0.36 : FT * 2.1;
     var bW = por ? W * 0.3 : FT * 1.45;
     var FD = FT * 0.46;
@@ -410,7 +481,7 @@
     // points on the letters of the title, where the four-point glints land
     proj.pts = [];
     try {
-      var bx = Math.max(0, Math.floor(box.x0 * dpr)), byy = Math.floor((box.y0) * dpr);
+      var bx = Math.max(0, Math.floor(box.x0 * dpr)), byy = Math.floor(box.y0 * dpr);
       var bw = Math.max(1, Math.ceil((box.x1 - box.x0) * dpr)), bh = Math.max(1, Math.ceil((parts[0][1] + parts[1][1] + parts[1][2]) * dpr));
       var im = x.getImageData(bx, byy, bw, bh).data, step = Math.max(2, Math.round(3 * dpr));
       for (var j = 0; j < bh; j += step) for (var i = 0; i < bw; i += step) {
@@ -461,11 +532,24 @@
   }
 
   /* ------------------------------------------------------------ sound
-     Only sounds that would exist in the room, short and low. Nothing is created or
-     scheduled before a gesture; with sound off the page does exactly the same. */
+     Synthesized, no files. Nothing is created or scheduled before a gesture; with sound off the
+     page does exactly the same. Two palettes:
+       toast    (default) a spoon on a champagne flute calls the room three times; the cord
+                gives small celesta notes that climb as it is pulled; the rise is a celesta
+                run over a soft swish of velvet, closed by a few glints.
+       musicbox (#musicbox) the same moments in music-box notes; the call is a rising triad.
+     Every voice takes X = { c: context, out: node, noise: buffer }, so the same code plays live
+     and renders offline (GX.debug.renderSound). */
 
-  var A = {};
-  var VOL = 0.55;
+  var VOL = 1;
+  var PALETTE = /musicbox/.test(HASH) ? 'musicbox' : 'toast';
+  var PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+  var GLASS = [[1, 1, 1], [1.0008, 0.6, 0.95], [2.76, 0.32, 0.45], [5.4, 0.16, 0.18], [8.9, 0.06, 0.08]];
+  var CELESTA = [[1, 1, 1], [2, 0.3, 0.45], [3, 0.1, 0.2], [4.03, 0.05, 0.12]];
+  var MBOX = [[1, 1, 1], [3, 0.18, 0.3], [5.9, 0.1, 0.12], [9.2, 0.05, 0.06]];
+  function note(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  function riseEase(p) { return 1 - Math.pow(1 - Math.pow(clamp(p, 0, 1), 1.6), 2.4); }
+  function riseInv(y) { var a = 0, b = 1; for (var i = 0; i < 24; i++) { var m = (a + b) / 2; if (riseEase(m) < y) a = m; else b = m; } return (a + b) / 2; }
 
   function noiseBuf(c, dur) {
     var n = Math.floor(c.sampleRate * dur), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
@@ -476,90 +560,122 @@
     var n = Math.floor(c.sampleRate * dur), b = c.createBuffer(2, n, c.sampleRate);
     for (var ch = 0; ch < 2; ch++) {
       var d = b.getChannelData(ch), lp = 0;
-      for (var i = 0; i < n; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.35; d[i] = lp * Math.pow(1 - i / n, decay); }
+      for (var i = 0; i < n; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.5; d[i] = lp * Math.pow(1 - i / n, decay); }
     }
     return b;
   }
+  // a ballroom: a long, soft room behind a gentle lowpass
+  function graph(c) {
+    var master = c.createGain(); master.gain.value = VOL; master.connect(c.destination);
+    var lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 8500; lp.Q.value = 0.4;
+    var dry = c.createGain(); dry.gain.value = 0.8;
+    var wet = c.createGain(); wet.gain.value = 0.38;
+    var room = c.createConvolver(); room.buffer = impulse(c, 1.8, 3.4);
+    lp.connect(dry); lp.connect(room); room.connect(wet);
+    dry.connect(master); wet.connect(master);
+    return { c: c, out: lp, master: master, noise: noiseBuf(c, 2.5) };
+  }
+
+  function bell(X, t, f, g, dec, parts) {
+    parts.forEach(function (p) {
+      var o = X.c.createOscillator(), e = X.c.createGain(), d = dec * p[2];
+      o.type = 'sine';
+      o.frequency.value = f * p[0];
+      e.gain.setValueAtTime(0.0001, t);
+      e.gain.exponentialRampToValueAtTime(g * p[1], t + 0.004);
+      e.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(e); e.connect(X.out);
+      o.start(t); o.stop(t + d + 0.05);
+      GX.debug.sounds++;
+    });
+  }
+  function click(X, t, g, f) {
+    var n = X.c.createBufferSource(), hp = X.c.createBiquadFilter(), e = X.c.createGain();
+    n.buffer = X.noise;
+    hp.type = 'highpass'; hp.frequency.value = f;
+    e.gain.setValueAtTime(g, t);
+    e.gain.exponentialRampToValueAtTime(0.0001, t + 0.012);
+    n.connect(hp); hp.connect(e); e.connect(X.out);
+    n.start(t, Math.random() * 2, 0.03);
+    GX.debug.sounds++;
+  }
+  function swish(X, t, D, g) {
+    var n = X.c.createBufferSource(), bp = X.c.createBiquadFilter(), e = X.c.createGain();
+    n.buffer = X.noise; n.loop = true;
+    bp.type = 'bandpass'; bp.Q.value = 0.6;
+    bp.frequency.setValueAtTime(500, t);
+    bp.frequency.linearRampToValueAtTime(1200, t + D * 0.45);
+    bp.frequency.linearRampToValueAtTime(700, t + D);
+    e.gain.setValueAtTime(0.0001, t);
+    e.gain.exponentialRampToValueAtTime(g, t + D * 0.3);
+    e.gain.exponentialRampToValueAtTime(0.0001, t + D + 0.2);
+    n.connect(bp); bp.connect(e); e.connect(X.out);
+    n.start(t, Math.random()); n.stop(t + D + 0.3);
+    GX.debug.sounds++;
+  }
+  // a run of notes that follows the speed of the rise
+  function arp(X, t, D, base, n, parts, g) {
+    for (var i = 0; i < n; i++) {
+      var tt = t + D * riseInv((i + 0.5) / n), m = base + PENTA[i % 8] + 12 * Math.floor(i / 8);
+      bell(X, tt, note(m), g * (1 - 0.4 * i / n), 0.9, parts);
+    }
+  }
+  function glints(X, t, g) {
+    [100, 104, 107].forEach(function (m, i) { bell(X, t + i * 0.11 + Math.random() * 0.04, note(m), g, 0.7, CELESTA); });
+  }
+
+  var SND = {
+    toast: {
+      tick: function (X, t, i) { bell(X, t, note(76 + PENTA[i % 8]), 0.05, 0.5, CELESTA); },
+      cue: function (X, t, i) { click(X, t, 0.09, 6000); bell(X, t, 1975.5 * [1, 1.003, 0.998][i], [0.26, 0.21, 0.28][i], 1.8, GLASS); },
+      rise: function (X, t, D) { swish(X, t, D, 0.045); arp(X, t, D, 64, 15, CELESTA, 0.055); glints(X, t + D * 0.95, 0.03); }
+    },
+    musicbox: {
+      tick: function (X, t, i) { bell(X, t, note(84 + PENTA[i % 8]), 0.16, 0.4, MBOX); },
+      cue: function (X, t, i) { bell(X, t, note([88, 92, 95][i]), 0.52, 1.3, MBOX); },
+      rise: function (X, t, D) { swish(X, t, D, 0.06); arp(X, t, D, 76, 13, MBOX, 0.22); glints(X, t + D * 0.95, 0.08); }
+    }
+  };
+
+  var A = null;
   function audio() {
     if (!B.snd) return null;
     try {
-      if (!A.ctx) {
+      if (!A) {
         var C = window.AudioContext || window.webkitAudioContext;
         if (!C) return null;
-        var c = A.ctx = new C();
+        A = graph(new C());
         GX.debug.audioAt = Math.round(performance.now());
-        A.master = c.createGain(); A.master.gain.value = VOL; A.master.connect(c.destination);
-        A.lp = c.createBiquadFilter(); A.lp.type = 'lowpass'; A.lp.frequency.value = 2600; A.lp.Q.value = 0.5;
-        var dry = c.createGain(); dry.gain.value = 0.85;
-        var wet = c.createGain(); wet.gain.value = 0.32;
-        var room = c.createConvolver(); room.buffer = impulse(c, 1.2, 4.2);
-        A.lp.connect(dry); A.lp.connect(room); room.connect(wet);
-        dry.connect(A.master); wet.connect(A.master);
-        A.noise = noiseBuf(c, 2.5);
       }
-      if (A.ctx.state !== 'running') A.ctx.resume();
+      if (A.c.state !== 'running') A.c.resume();
     } catch (e) { return null; }
-    return A.ctx;
+    return A;
   }
-  function live() { return B.snd && A.ctx && A.ctx.state === 'running' ? A.ctx : null; }
+  function live() { return B.snd && A && A.c.state === 'running' ? A : null; }
+  function play(name, a, b) { var X = live(); if (X) SND[PALETTE][name](X, X.c.currentTime + 0.005, a, b); }
 
-  // A knock of the brigadier on the boards: a falling thump and a woody click, muffled.
-  function knock(heavy) {
-    var c = live();
-    if (!c) return;
-    var t = c.currentTime + 0.004, dur = heavy ? 0.26 : 0.07, jit = heavy ? 1 : 0.94 + Math.random() * 0.12;
-    var o = c.createOscillator(), g = c.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime((heavy ? 150 : 300) * jit, t);
-    o.frequency.exponentialRampToValueAtTime((heavy ? 62 : 160) * jit, t + (heavy ? 0.1 : 0.035));
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(heavy ? 0.95 : 0.3, t + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(A.lp);
-    o.start(t); o.stop(t + dur + 0.02);
-    var n = c.createBufferSource(), bp = c.createBiquadFilter(), g2 = c.createGain();
-    n.buffer = A.noise;
-    bp.type = 'bandpass'; bp.frequency.value = (heavy ? 1250 : 2100) * jit; bp.Q.value = heavy ? 1.1 : 1.6;
-    g2.gain.setValueAtTime(heavy ? 0.55 : 0.22, t);
-    g2.gain.exponentialRampToValueAtTime(0.0001, t + (heavy ? 0.06 : 0.028));
-    n.connect(bp); bp.connect(g2); g2.connect(A.lp);
-    n.start(t, Math.random() * 2, 0.1);
-    GX.debug.sounds += 2;
-  }
-
-  // Velvet running over the boards and the pulleys turning, for the length of the rise.
-  function velvetSound(D) {
-    var c = live();
-    if (!c) return;
-    var t = c.currentTime + 0.01;
-    var n = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
-    n.buffer = A.noise; n.loop = true;
-    bp.type = 'bandpass'; bp.Q.value = 0.6;
-    bp.frequency.setValueAtTime(420, t);
-    bp.frequency.linearRampToValueAtTime(1100, t + D * 0.5);
-    bp.frequency.linearRampToValueAtTime(600, t + D);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.16, t + 0.45);
-    g.gain.linearRampToValueAtTime(0.12, t + D * 0.7);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + D + 0.3);
-    n.connect(bp); bp.connect(g); g.connect(A.lp);
-    n.start(t, Math.random()); n.stop(t + D + 0.35);
-    GX.debug.sounds++;
-    // pulley ticks follow the speed of the rise (power2.inOut)
-    for (var i = 1; i < 16; i++) {
-      var p = i / 16, f = p < 0.5 ? Math.sqrt(p / 2) : 1 - Math.sqrt((1 - p) / 2), tt = t + D * f;
-      var o = c.createOscillator(), og = c.createGain();
-      o.type = 'triangle';
-      o.frequency.setValueAtTime(820 + Math.random() * 120, tt);
-      o.frequency.exponentialRampToValueAtTime(560, tt + 0.04);
-      og.gain.setValueAtTime(0.0001, tt);
-      og.gain.exponentialRampToValueAtTime(0.03, tt + 0.004);
-      og.gain.exponentialRampToValueAtTime(0.0001, tt + 0.05);
-      o.connect(og); og.connect(A.lp);
-      o.start(tt); o.stop(tt + 0.06);
-      GX.debug.sounds++;
-    }
-  }
+  // Offline render of the whole sequence, for listening to a palette without the page.
+  GX.debug.renderSound = function (pal) {
+    var sr = 44100, D = 7.5, oc = new OfflineAudioContext(2, Math.round(sr * D), sr), X = graph(oc), P = SND[pal || PALETTE];
+    for (var i = 0; i < 6; i++) P.tick(X, 0.2 + i * 0.12, i);
+    [0.45, 0.9, 1.35].forEach(function (d, i) { P.cue(X, 1.2 + d, i); });
+    P.rise(X, 2.8, RISE_D);
+    return oc.startRendering().then(function (buf) {
+      var n = buf.length, ch = [buf.getChannelData(0), buf.getChannelData(1)], out = new DataView(new ArrayBuffer(44 + n * 4));
+      function str(o, s) { for (var i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); }
+      str(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); str(8, 'WAVEfmt '); out.setUint32(16, 16, true);
+      out.setUint16(20, 1, true); out.setUint16(22, 2, true); out.setUint32(24, sr, true); out.setUint32(28, sr * 4, true);
+      out.setUint16(32, 4, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, n * 4, true);
+      var peak = 0;
+      for (var k = 0; k < n; k++) for (var c = 0; c < 2; c++) {
+        var v = clamp(ch[c][k], -1, 1); peak = Math.max(peak, Math.abs(v));
+        out.setInt16(44 + (k * 2 + c) * 2, v * 32767, true);
+      }
+      var bytes = new Uint8Array(out.buffer), s = '';
+      for (var j = 0; j < bytes.length; j += 32768) s += String.fromCharCode.apply(null, bytes.subarray(j, j + 32768));
+      return { wav: btoa(s), peak: peak };
+    });
+  };
 
   /* ------------------------------------------------------------ the cord */
 
@@ -576,21 +692,33 @@
     gsap.to(sway, { rotation: 0, duration: 0.3, ease: 'power2.out' });
   }
 
-  // The bar follows the finger; every stretch of rope gives one quick knock (the roll).
+  // While the cord is pulled the tableau lines take up slack: the inner bottom corners begin to
+  // rise, a sliver of light opens at the seam, the hem lifts a little. Each stretch of rope plays
+  // one small note.
   function dragFx(y) {
-    S.lift = Math.max(0, y) / MAX * 0.045;
+    var k = clamp(y / MAX, 0, 1);
+    SP.o[2] = Math.pow(k, 1.4) * 0.055;
+    SP.l[2] = k * 0.012;
     var seg = Math.floor(y / STEP);
     if (seg > lastSeg) {
-      for (var i = lastSeg; i < seg; i++) { knock(false); kick(0.28); GX.debug.knocks++; }
+      for (var i = lastSeg; i < seg; i++) { play('tick', i); kick(0.18); GX.debug.knocks++; }
       lastSeg = seg;
     } else if (seg < lastSeg) lastSeg = seg;
   }
+  // the label steps aside while the cord is pulled, so the tassel never sits on it
+  function label(on) {
+    if (!pull || B.state) return;
+    gsap.to(pull, on ? { opacity: 1, duration: 0.6, delay: 0.5, onComplete: function () { gsap.set(pull, { clearProps: 'opacity' }); } } : { opacity: 0, duration: 0.25 });
+  }
   function back() {
     lastSeg = 0;
-    gsap.to(cord, { y: 0, duration: 0.7, ease: 'elastic.out(1,.35)' });
-    gsap.to(S, { lift: 0, duration: 0.45, ease: 'power2.out' });
+    label(true);
+    SP.c[0] = gsap.getProperty(cord, 'y') || 0;
+    SP.c[1] = 0; SP.c[2] = 0;
+    SP.o[2] = 0; SP.l[2] = 0;
     startSway();
   }
+
   // After the opening the cord hangs with the gathered cloth, over the right leg of the frame,
   // and never past the edge of the screen.
   function legOffset() {
@@ -598,7 +726,7 @@
     var centre = Math.min(w - (1 - F[0]) * w / 4, w - 17);
     return centre - (r.left + r.width / 2) + (gsap.getProperty(cord, 'x') || 0);
   }
-  function heavy() { knock(true); kick(1); GX.debug.heavy++; log('knock'); }
+  function cue(i) { play('cue', i); kick(0.55); GX.debug.heavy++; log('cue'); }
 
   function setupCord() {
     cord.addEventListener('pointerdown', function () { lastPointer = Date.now(); }, true);
@@ -610,8 +738,9 @@
       cursor: 'grab',
       activeCursor: 'grabbing',
       onPress: function () { audio(); stopSway(); },
+      onDragStart: function () { dragging = true; label(false); },
       onDrag: function () { dragFx(this.y); },
-      onRelease: function () { audio(); if (this.y > THR) open('drag'); else if (!B.state) back(); },
+      onRelease: function () { dragging = false; audio(); release(this.y); },
       onClick: function () { open('tap'); }
     })[0];
     // keyboard Space or Enter on the focused tassel; pointer clicks belong to Draggable
@@ -619,12 +748,34 @@
     B.eng = open;
     startSway();
   }
+  function release(y) { if (y > THR) open('drag'); else if (!B.state) back(); }
 
-  /* ------------------------------------------------------------ the opening */
+  // Review hooks: hold the cord at y and let go, without a pointer.
+  GX.debug.hold = function (y) { if (!dragging) label(false); dragging = true; stopSway(); gsap.set(cord, { y: y }); dragFx(y); };
+  GX.debug.letGo = function (y) { dragging = false; release(y); };
+
+  /* ------------------------------------------------------------ the opening
+     Release: the cord springs back and the lifted corners fall to the floor. Three taps call
+     the room. Then the lines take the curtain up: a slow, heavy start, a long sweep, the middle
+     of the cloth trailing the lines, and a soft overshoot as it stops, the legs swinging once or
+     twice before they hang still. */
+
+  var RISE_D = 2.3, RISE_T = 3.6;
+
+  function riseAt(t) {
+    var p = clamp(t / RISE_D, 0, 1), base = riseEase(p);
+    var vel = (riseEase(p + 0.004) - riseEase(p - 0.004)) / 0.008;
+    var u = Math.max(0, t - (RISE_D - 0.3)), env = smooth(u / 0.35) * Math.exp(-2.6 * u);
+    S.open = base + 0.03 * env * Math.sin(6.9 * u);
+    S.swing = 0.045 * env * Math.sin(5.6 * u + 0.5);
+    S.sag = clamp(vel / 1.6, 0, 1) * (1 - 0.3 * p);
+    if (!revealed && S.open > 0.4) { revealed = true; log('reveal'); emit('gx:reveal'); }
+  }
 
   function open(src) {
     if (B.state) return;
     B.state = 'opening';
+    dragging = false;
     GX.debug.openedBy = src;
     log('open:' + src);
     audio();
@@ -633,30 +784,33 @@
     if (mode === 'css') curtain.style.background = 'transparent';
     gsap.killTweensOf(S, 'proj');
     gsap.to(pull, { opacity: 0, duration: 0.4 });
+    S.open = Math.max(0, SP.o[0]);
+    S.lift = Math.max(0, SP.l[0]);
     var tl = GX.tl = gsap.timeline();
     if (src !== 'drag') {
       lastSeg = 0;
-      tl.to(cord, { y: 128, duration: 0.5, ease: 'power2.in', onUpdate: function () { dragFx(gsap.getProperty(cord, 'y')); } });
+      tl.to(cord, { y: 128, duration: 0.5, ease: 'power2.in', onUpdate: function () {
+        var y = gsap.getProperty(cord, 'y'), k = clamp(y / MAX, 0, 1);
+        dragFx(y); S.open = Math.pow(k, 1.4) * 0.055; S.lift = k * 0.012;
+      } });
     }
     tl.addLabel('rel');
-    tl.to(cord, { y: 0, duration: 1.1, ease: 'elastic.out(1,.32)' }, 'rel');
-    tl.to(S, { lift: 0, duration: 0.3, ease: 'power2.out' }, 'rel');
-    [0.08, 0.53, 0.98].forEach(function (t) { tl.call(heavy, null, 'rel+=' + t); });
-    tl.to(S, { proj: 0, duration: 0.9, ease: 'power1.in' }, 'rel+=1.15');
-    tl.call(velvetSound, [2.0], 'rel+=1.2');
-    tl.to(cord, { x: legOffset(), duration: 2.0, ease: 'power2.inOut' }, 'rel+=1.2');
-    tl.call(function () { log('rise'); emit('gx:rise'); }, null, 'rel+=1.2');
-    tl.to(S, { open: 1, duration: 2.0, ease: 'power2.inOut', onUpdate: function () {
-      if (!revealed && S.open > 0.4) { revealed = true; log('reveal'); emit('gx:reveal'); }
-    } }, 'rel+=1.2');
-    tl.to(S, { open: 1.03, duration: 0.26, ease: 'sine.out' });
-    tl.to(S, { open: 1, duration: 0.4, ease: 'sine.inOut' });
+    tl.to(cord, { y: 0, duration: 0.9, ease: 'elastic.out(1,.42)' }, 'rel');
+    tl.to(S, { open: 0, lift: 0, duration: 0.42, ease: 'power2.in' }, 'rel');
+    tl.call(kick, [0.3], 'rel+=0.42');
+    [0.45, 0.9, 1.35].forEach(function (t, i) { tl.call(cue, [i], 'rel+=' + t); });
+    tl.to(S, { proj: 0, duration: 0.9, ease: 'power1.in' }, 'rel+=1.5');
+    tl.call(function () { play('rise', RISE_D); log('rise'); emit('gx:rise'); }, null, 'rel+=1.6');
+    tl.to(cord, { x: legOffset(), duration: RISE_D, ease: 'power2.inOut' }, 'rel+=1.6');
+    var R = { t: 0 };
+    tl.to(R, { t: RISE_T, duration: RISE_T, ease: 'none', onUpdate: function () { riseAt(R.t); } }, 'rel+=1.6');
     tl.call(settled);
   }
 
   function settled() {
     log('settled');
-    if (mode === 'css') { drawCSS(performance.now() / 1000); }
+    S.sag = 0; S.swing = 0; S.open = 1;
+    if (mode === 'css') drawCSS(clock());
     B.settle();
     startSway();
     // after the opening the frame only breathes while it is on screen
@@ -694,9 +848,9 @@
 
   function swap() {
     fit();
-    drawGL(performance.now() / 1000);
+    drawGL(clock());
     requestAnimationFrame(function () {
-      drawGL(performance.now() / 1000);
+      drawGL(clock());
       halves.forEach(function (h) { h.style.visibility = 'hidden'; });
       curtain.style.background = 'transparent';
       GX.debug.swapped = true;
@@ -755,7 +909,7 @@
     }
     B.onsnd = function (on) {
       if (on) audio();
-      if (A.master) A.master.gain.setTargetAtTime(on ? VOL : 0, A.ctx.currentTime, 0.03);
+      if (A) A.master.gain.setTargetAtTime(on ? VOL : 0, A.c.currentTime, 0.03);
     };
     root.classList.add('gx-ready');
     log('ready');
