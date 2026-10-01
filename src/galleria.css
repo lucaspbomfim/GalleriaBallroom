@@ -1,0 +1,32 @@
+/* GalleriaBallroom engine v0.1.0 stylesheet.
+   The sentinel comes first: the engine waits until it reads back (MD 12.4). */
+:root { --gx-v: "0.1.0"; }
+
+#gx-c .gx-gl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+#gx-c .gx-cord { touch-action: none; }
+
+/* Logos placed by the engine over the text fallbacks; the text stays for screen readers. */
+.gx-has-art > span {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.gx-has-art > svg { display: block; width: 100%; height: auto; fill: currentColor; }
+
+/* The cartouche in dry emboss, tone on tone. Light from the top left, as on the save the date. */
+.gx-hero__art {
+  position: absolute; left: 50%; top: 50%; z-index: 0;
+  width: min(1000px, 70vw, 140svh); aspect-ratio: 841.89 / 595.28;
+  transform: translate(-50%, -50%); pointer-events: none;
+}
+.gx-hero__art svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.gx-rl { fill: #7E2928; transform: translate(-1.2px, -1.2px); }
+.gx-rs { fill: #531111; transform: translate(1.2px, 1.2px); }
+.gx-rb { fill: #7C252E; }
+
+/* Portrait: the cartouche turns a quarter. It mirrors top to bottom, so turned it mirrors
+   left to right and frames a column. The emboss offsets turn with it to keep the light. */
+@media (orientation: portrait) {
+  .gx-hero__art { width: min(132vw, 74svh); transform: translate(-50%, -50%) rotate(90deg); }
+  .gx-rl { transform: translate(-1.4px, 1.4px); }
+  .gx-rs { transform: translate(1.4px, -1.4px); }
+}

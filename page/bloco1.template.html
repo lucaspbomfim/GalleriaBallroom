@@ -1,0 +1,33 @@
+<div id="gx-c" style="position:fixed;inset:0;z-index:2147483000;background:#2A0C10;overflow:hidden;touch-action:none;--p:{{LAYERS}};--s:auto,auto,auto,var(--b1) 100%,var(--w) 100%">
+<canvas></canvas><i class="gx-h"></i><i class="gx-h gx-l"></i>
+<div class="gx-cord"><div class="gx-sw"><button type="button" class="gx-tas" data-gx-enter aria-label="Pull the cord"><b></b></button></div></div>
+<p class="gx-pull" aria-hidden="true">Pull the cord</p>
+</div>
+<button type="button" class="gx-snd" aria-pressed="true">Sound</button>
+<style>
+html,body{background:#640D16!important}
+.gx-js .list-group-item:has([data-type=product-wrapper]){display:none!important}
+#gx-c i{position:absolute;top:0;bottom:0;left:50%;width:50%;background:var(--p);background-size:var(--s);clip-path:polygon({{CLOSED}})}
+#gx-c .gx-l{left:0;transform:scaleX(-1)}
+#gx-c.gx-anim i{transition:clip-path 2.2s ease-in-out}
+#gx-c.gx-open{background:none!important;pointer-events:none}
+#gx-c.gx-open i{clip-path:polygon({{OPEN_L}})}
+@media(orientation:portrait){#gx-c.gx-open i{clip-path:polygon({{OPEN_P}})}}
+.gx-cord,.gx-sw,.gx-tas{position:absolute;top:0;left:0;width:48px;height:96px}
+.gx-cord{top:57%;left:auto;right:max(14px,5vw);z-index:3}
+.gx-sw:before{content:"";position:absolute;bottom:92px;left:22px;width:3px;height:150vh;background:repeating-linear-gradient(60deg,#D3B69C 0 2px,#B99872 0 4px)}
+.gx-tas{margin:0;padding:0;border:0;background:none;cursor:grab;-webkit-tap-highlight-color:transparent}
+#gx-c b,#gx-c b:after{position:absolute;content:""}
+#gx-c b{left:16px;top:2px;width:16px;height:20px;border-radius:45%/55% 55% 45% 45%;background:radial-gradient(circle at 35% 30%,#F5E7B3,#D3B69C 45%,#B99872)}
+#gx-c b:after{left:-7px;top:18px;width:30px;height:66px;clip-path:polygon(30% 0,70% 0,100% 100%,0 100%);background:linear-gradient(#B99872 0 5px,#2A0C1000 0 55%,#2A0C1073),repeating-linear-gradient(90deg,#D3B69C 0 1px,#B99872 0 2px)}
+.gx-tas:focus-visible,.gx-snd:focus-visible{outline:1px solid #D3B69C;outline-offset:4px}
+.gx-pull,.gx-snd{font:400 11px/1 "Lexend Peta",sans-serif;text-transform:uppercase;color:#D3B69C;opacity:0;transition:opacity .5s}
+.gx-pull{position:absolute;right:max(14px,5vw);bottom:24px;margin:0}
+.gx-snd{position:fixed;left:max(14px,5vw);bottom:12px;z-index:2147483001;background:none;border:0;padding:0;min-height:44px;cursor:pointer}
+.gx-snd[aria-pressed=false]{text-decoration:line-through}
+.gx-f .gx-pull,.gx-f .gx-snd{opacity:1}
+#gx-c.gx-open .gx-pull{opacity:0}
+</style>
+<script>
+(function(){var D=document,d=D.documentElement,b=D.body,c=D.getElementById('gx-c'),n=D.querySelector('.gx-snd'),S=sessionStorage,G=window.GXB={t0:performance.now(),snd:!0},V='https://cdn.jsdelivr.net/gh/lucaspbomfim/GalleriaBallroom@{{TAG}}/dist/',w=Math.round(Math.min(84,Math.max(46,d.clientWidth*.05)));d.classList.add('gx-js');n.y=c.style;n.y.setProperty('--w',w+'px');n.y.setProperty('--b1',Math.round(w*2.7)+'px');G.rm=matchMedia('(prefers-reduced-motion:reduce)').matches;try{G.seen=S['gx-seen']&&!/curtain/.test(location.hash)}catch(e){}function L(o){d.style.overflow=b.style.overflow=o?'hidden':''}G.settle=function(){if(G.done)return;G.done=G.state='open';c.classList.add('gx-open');b.appendChild(c);c.style.position='absolute';c.style.height=innerHeight+'px';L(0);try{S['gx-seen']=1}catch(e){}D.dispatchEvent(new Event('gx:open'))};G.open=function(s){if(G.state)return;if(G.eng)return G.eng(s);G.state='opening';c.classList.add('gx-anim','gx-open');setTimeout(G.settle,2300)};G.seen||G.rm?G.settle():L(1);c.querySelector('.gx-tas').onclick=function(){G.tap?G.tap():G.open('tap')};addEventListener('keydown',function(e){/^(Enter|Escape)$/.test(e.key)&&G.open(e.key)});n.onclick=function(){G.snd=!G.snd;n.setAttribute('aria-pressed',G.snd);G.onsnd&&G.onsnd(G.snd)};function C(u,k){var l=D.createElement('link');l.rel='stylesheet';l.media='print';l.href=u;G[k]=new Promise(function(r){l.onload=function(){l.media='all';r(1)};l.onerror=function(){r(0)}});D.head.appendChild(l)}C('https://use.typekit.net/vjp8epz.css','kit');C('https://fonts.googleapis.com/css2?family=Lexend+Peta:wght@300..500&display=swap','lex');C(V+'galleria.css','ecss');var s=D.createElement('script');s.src=V+'galleria.min.js';D.head.appendChild(s);function F(){d.classList.add('gx-f')}G.lex.then(function(){return D.fonts.load('400 11px "Lexend Peta"')}).then(F,F);setTimeout(F,1200);setTimeout(function(){d.classList.contains('gx-ready')||(G.fail=1,d.classList.remove('gx-js'))},7000)})();
+</script>

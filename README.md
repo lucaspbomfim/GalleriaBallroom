@@ -17,10 +17,12 @@ https://cdn.jsdelivr.net/gh/lucaspbomfim/GalleriaBallroom@<tag>/dist/<file>
 ## Rules
 
 - No font files in this repository. The display face comes from an Adobe Fonts web project, which forbids self-hosting.
-- `src/` holds the readable source; `dist/` holds what the page loads.
+- `src/` holds the readable source; `dist/` holds what the page loads; `page/` holds the MailerLite code blocks.
+- Build: `python3 build.py <tag> <path to the designer's clean SVGs>` (needs `terser` 5).
 
 ## Versions
 
 | Tag | What changed |
 |---|---|
 | v0.0.1 | Smoke test: `dist/smoke.js` and `dist/smoke.css` |
+| v0.1.0 | Iteration 1, the curtain: `dist/galleria.min.js` (WebGL velvet, projector, cord, knocks, tableau opening, settled frame, synthesized sounds), `dist/galleria.css` (sentinel and hero art styles), `dist/galleria-art.js` (the cartouche). Block 1 v0.1.0 and the provisional static hero (block 2) live in `page/`. `build.py` regenerates `dist/` and `page/bloco1.html` |
