@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.1.2
+ * GalleriaBallroom engine v0.1.3
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame.
@@ -11,7 +11,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.1.2';
+  var VERSION = '0.1.3';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -805,6 +805,9 @@
       L.d.map(function (d) { return '<path d="' + d + '"/>'; }).join('') + '</svg>';
   }
   // L is the lit height map: 0.5 on flat ground. Above that becomes light on the edges, below it shadow.
+  // The bevel is kept about 1.25 screen pixels wide whatever the size of the cartouche: in SVG units it
+  // would turn soft and blurry on a large desktop. On big screens the light and shadow get 15% more.
+  var BEVEL = 1.25;
   function emboss(id, azimuth) {
     return '<filter id="' + id + '" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">' +
       '<feGaussianBlur in="SourceAlpha" stdDeviation="1.8" result="h"/>' +
@@ -813,6 +816,17 @@
       '<feColorMatrix in="l" type="matrix" values="0 0 0 0 .62 0 0 0 0 .22 0 0 0 0 .22 1.05 0 0 0 -.525" result="hi"/>' +
       '<feColorMatrix in="l" type="matrix" values="0 0 0 0 .16 0 0 0 0 .03 0 0 0 0 .04 -1.2 0 0 0 .6" result="sh"/>' +
       '<feMerge><feMergeNode in="sh"/><feMergeNode in="hi"/></feMerge></filter>';
+  }
+  function fitEmboss(slot, R) {
+    var k = (slot.offsetWidth || 1) / R.w, sig = BEVEL / k, boost = 1 + 0.15 * clamp((k - 0.8) / 0.7, 0, 1);
+    [].forEach.call(slot.querySelectorAll('filter'), function (f) {
+      f.querySelector('feGaussianBlur').setAttribute('stdDeviation', sig.toFixed(3));
+      f.querySelector('feDiffuseLighting').setAttribute('surfaceScale', (4 * sig / 1.8).toFixed(3));
+      var m = f.querySelectorAll('feColorMatrix'), h = 1.05 * boost, d = 1.2 * boost;
+      m[0].setAttribute('values', '0 0 0 0 .62 0 0 0 0 .22 0 0 0 0 .22 ' + h.toFixed(3) + ' 0 0 0 ' + (-h / 2).toFixed(3));
+      m[1].setAttribute('values', '0 0 0 0 .16 0 0 0 0 .03 0 0 0 0 .04 ' + (-d).toFixed(3) + ' 0 0 0 ' + (d / 2).toFixed(3));
+    });
+    GX.debug.emboss = { k: +k.toFixed(3), sigma: +sig.toFixed(3) };
   }
   function heroArt() {
     var hero = doc.getElementById('gx-hero');
@@ -836,6 +850,8 @@
       var orient = function () { use.setAttribute('filter', 'url(#gx-emb-' + (mq.matches ? 'p' : 'l') + ')'); };
       orient();
       if (mq.addEventListener) mq.addEventListener('change', orient); else if (mq.addListener) mq.addListener(orient);
+      fitEmboss(slot, R);
+      if ('ResizeObserver' in window) new ResizeObserver(function () { fitEmboss(slot, R); }).observe(slot);
     }
     log('hero-art');
   }
