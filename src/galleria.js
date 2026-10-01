@@ -1,10 +1,11 @@
 /*!
- * GalleriaBallroom engine v0.4.2
+ * GalleriaBallroom engine v0.5.0
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
  * (desktop), the house light coming up on the emboss and a pass of foil over the type. Scene 2:
- * the carnet de bal, a cream card hung on a cord (its emboss, its swing).
+ * the carnet de bal, a cream card hung on a cord (its emboss, its swing). Scene 3: the box office.
+ * Scene 4: the dance floor (marquee, mirror ball, reflections) and the footer.
  * Readable source. dist/galleria.min.js is this file run through terser.
  * Loaded by the page's first block, which creates window.GXB. No font files live here.
  * Hash switches for review: #curtain (show the curtain again), #purpose (purpose line in the
@@ -13,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.4.2';
+  var VERSION = '0.5.0';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -580,7 +581,11 @@
     var room = c.createConvolver(); room.buffer = impulse(c, 1.8, 3.4);
     lp.connect(dry); lp.connect(room); room.connect(wet);
     dry.connect(master); wet.connect(master);
-    return { c: c, out: lp, master: master, noise: noiseBuf(c, 2.5) };
+    // the sax alone goes through its own door: open in the hero and on the dance floor, muffled between
+    var ov = c.createBiquadFilter(); ov.type = 'lowpass'; ov.frequency.value = 18000; ov.Q.value = 0.5;
+    var ovg = c.createGain(); ovg.gain.value = 1;
+    ov.connect(ovg); ovg.connect(lp);
+    return { c: c, out: lp, master: master, noise: noiseBuf(c, 2.5), ov: ov, ovg: ovg };
   }
   function swish(X, t, D, g) {
     var n = X.c.createBufferSource(), bp = X.c.createBiquadFilter(), e = X.c.createGain();
@@ -655,7 +660,8 @@
       src.buffer = buf;
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(OV.gain, t + 0.5);
-      src.connect(g); g.connect(X.out);
+      src.connect(g); g.connect(X.ov || X.out);
+      roomApply(true);
       src.start(t, off);
       GX.debug.sounds++;
       GX.debug.overture = { offset: +off.toFixed(3), wait: +wait.toFixed(3), saxAt: Math.round(performance.now() + (0.02 + wait + OV.entry - off) * 1000) };
@@ -1411,6 +1417,159 @@
   GX.debug.thanks = thanks;
   GX.debug.stage = function () { return STG ? STG.st : null; };
 
+  /* ------------------------------------------------------------ the next room
+     After the hero, the sax goes on as if from the next room (lowpass, a little lower); when the dance
+     floor comes into view the door opens. Only the overture passes this door. */
+  var ROOM = { hero: true, pista: false };
+  function roomApply(now) {
+    var X = A;
+    if (!X || !X.ov) return;
+    var open = ROOM.hero || ROOM.pista, t = X.c.currentTime;
+    if (now) { X.ov.frequency.setValueAtTime(open ? 18000 : 750, t); X.ovg.gain.setValueAtTime(open ? 1 : 0.6, t); return; }
+    X.ov.frequency.setTargetAtTime(open ? 18000 : 750, t, open ? 0.45 : 0.6);
+    X.ovg.gain.setTargetAtTime(open ? 1 : 0.6, t, open ? 0.45 : 0.6);
+    log(open ? 'room-open' : 'room-muffled');
+  }
+  GX.debug.room = function () { return A && A.ov ? { hz: Math.round(A.ov.frequency.value), gain: +A.ovg.gain.value.toFixed(2) } : null; };
+  function roomWatch() {
+    var hero = doc.getElementById('gx-hero'), pi = doc.getElementById('gx-pista');
+    if (!('IntersectionObserver' in window)) return;
+    if (hero) new IntersectionObserver(function (en) { ROOM.hero = en[0].intersectionRatio > 0.2; roomApply(); }, { threshold: [0, 0.2, 0.4] }).observe(hero);
+    if (pi) new IntersectionObserver(function (en) { ROOM.pista = en[0].intersectionRatio > 0.3; roomApply(); }, { threshold: [0, 0.3, 0.6] }).observe(pi);
+  }
+
+  /* ------------------------------------------------------------ scene 4: the dance floor
+     A marquee arch of bulbs around the last line, lit from both feet up to the crown when the floor
+     comes into view, then breathing in a slow chase. A mirror ball hangs at the crown: tile by tile,
+     each facet reflects the room and two stage lamps, and the brightest catch a four-point glint. Its
+     reflections sweep the room, one turn every 48 s. One 2D canvas, drawn only while the floor is on
+     screen; still with reduced motion. */
+  var BALL = true;
+  function logoSVG(key, cls) {
+    var L = LOGO && LOGO[key];
+    if (!L) return '';
+    return '<svg class="' + cls + '" viewBox="0 0 ' + L.w + ' ' + L.h + '" aria-hidden="true" focusable="false">' + L.d.map(function (d) { return '<path d="' + d + '"/>'; }).join('') + '</svg>';
+  }
+  function pista() {
+    var sec = doc.getElementById('gx-pista');
+    if (!sec) return;
+    var sig = sec.querySelector('.gx-pista__sig');
+    if (sig && LOGO && LOGO.galleria && LOGO.beau) {
+      sig.setAttribute('aria-label', 'Galleria × Beau Monde Builders');
+      sig.innerHTML = logoSVG('galleria', 'gx-sig__g') + '<span class="gx-sig__x" aria-hidden="true">×</span>' + logoSVG('beau', 'gx-sig__b');
+    }
+    var stage = sec.querySelector('.gx-pista__stage'), cv = doc.createElement('canvas');
+    cv.className = 'gx-pista__fx'; cv.setAttribute('aria-hidden', 'true'); sec.insertBefore(cv, sec.firstChild);
+    var x = cv.getContext('2d');
+    if (!x || !stage) return;
+    var PI = Math.PI, P = { W: 0, H: 0, dpr: 1, bulbs: [], spots: [], lit: 0, k: 0, on: false, seen: false, cx: 0, crown: 0, rb: 0 };
+    function sprite(r, stops) {
+      var c = doc.createElement('canvas'), n = Math.ceil(r * 2); c.width = c.height = n;
+      var g = c.getContext('2d'), gr = g.createRadialGradient(r, r, 0, r, r, r);
+      stops.forEach(function (st) { gr.addColorStop(st[0], st[1]); }); g.fillStyle = gr; g.fillRect(0, 0, n, n); return c;
+    }
+    var SB = sprite(32, [[0, 'rgba(255,250,232,1)'], [0.12, 'rgba(255,243,205,.95)'], [0.28, 'rgba(245,231,179,.4)'], [0.6, 'rgba(211,182,156,.1)'], [1, 'rgba(211,182,156,0)']]);
+    var SS = sprite(16, [[0, 'rgba(255,249,232,1)'], [0.42, 'rgba(250,238,200,.8)'], [0.62, 'rgba(245,231,179,.22)'], [1, 'rgba(245,231,179,0)']]);   // a reflection: a small bright patch, soft only at its rim
+    var ST = (function () {   // the four-point glint
+      var c = doc.createElement('canvas'); c.width = c.height = 64; var g = c.getContext('2d');
+      [[64, 3], [3, 64]].forEach(function (d) { var gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,250,232,1)'); gr.addColorStop(1, 'rgba(245,231,179,0)'); g.fillStyle = gr; g.fillRect(32 - d[0] / 2, 32 - d[1] / 2, d[0], d[1]); });
+      return c;
+    })();
+    for (var i = 0, N = DESK ? 110 : 54; i < N; i++) P.spots.push({ lon: hz(i * 13.1) * PI * 2, lat: hz(i * 7.7 + 3) * 2 - 1, r: 1.4 + Math.pow(hz(i * 3.3), 2) * (DESK ? 4.2 : 3), b: 0.3 + hz(i * 5.9) * 0.6 });
+    function layout() {
+      var r = sec.getBoundingClientRect(), s = stage.getBoundingClientRect();
+      P.W = r.width; P.H = r.height; P.dpr = Math.min(window.devicePixelRatio || 1, DESK ? 2 : 1.5);
+      cv.width = Math.round(P.W * P.dpr); cv.height = Math.round(P.H * P.dpr);
+      var pad = DESK ? 60 : 26, cx = s.left - r.left + s.width / 2, rad = Math.min(P.W * (DESK ? 0.4 : 0.46), Math.max(s.width / 2 + pad, DESK ? 250 : 0));
+      var cy = s.top - r.top + rad * 0.3, bot = s.bottom - r.top + pad, sp = DESK ? 24 : 17;
+      P.cx = cx; P.crown = cy - rad; P.rb = DESK ? 58 : 36; P.bulbs = [];
+      var side = Math.max(0, bot - cy), arc = PI * rad, total = side * 2 + arc, n = Math.round(total / sp);
+      for (var k = 0; k <= n; k++) {
+        var d = k * total / n, px, py;
+        if (d <= side) { px = cx - rad; py = bot - d; }
+        else if (d <= side + arc) { var a = PI + (d - side) / rad; px = cx + rad * Math.cos(a); py = cy + rad * Math.sin(a); }
+        else { px = cx + rad; py = cy + (d - side - arc); }
+        P.bulbs.push({ x: px, y: py, o: Math.min(d, total - d) / (total / 2), i: k });
+      }
+    }
+    function ball(T) {
+      var cx = P.cx, r = P.rb, cy = P.crown + r * 0.55, rot = T * PI * 2 / 48, k = P.k;
+      x.globalCompositeOperation = 'source-over'; x.globalAlpha = k;
+      x.strokeStyle = 'rgba(211,182,156,.5)'; x.lineWidth = 1; x.beginPath(); x.moveTo(cx, 0); x.lineTo(cx, cy - r); x.stroke();
+      x.fillStyle = '#16060A'; x.beginPath(); x.arc(cx, cy, r, 0, PI * 2); x.fill();
+      var L1 = [-0.48, 0.58, 0.66], L2 = [0.6, 0.32, 0.73], gl = [], NL = DESK ? 18 : 13;
+      for (var i = 0; i < NL; i++) {
+        var la0 = -PI / 2 + PI * i / NL, la1 = la0 + PI / NL, lam = (la0 + la1) / 2, cl = Math.cos(lam), NO = Math.max(6, Math.round((DESK ? 36 : 26) * cl));
+        for (var j = 0; j < NO; j++) {
+          var w = PI * 2 / NO, lo0 = j * w + rot + (i % 2) * w / 2, lo1 = lo0 + w, lom = lo0 + w / 2;
+          var nz = cl * Math.cos(lom);
+          if (nz < 0.04) continue;
+          // each mirror sits a little askew, so neighbours catch different parts of the room
+          var nx = cl * Math.sin(lom), ny = Math.sin(lam), jx = (hz(i * 97 + j) - 0.5) * 0.14, jy = (hz(i * 31 + j * 7) - 0.5) * 0.14;
+          nx += jx; ny += jy; var nl = Math.sqrt(nx * nx + ny * ny + nz * nz); nx /= nl; ny /= nl; nz /= nl;
+          var rx = 2 * nz * nx, ry = 2 * nz * ny, rz = 2 * nz * nz - 1;
+          var h = Math.pow(Math.max(0, rx * L1[0] + ry * L1[1] + rz * L1[2]), 40) + 0.8 * Math.pow(Math.max(0, rx * L2[0] + ry * L2[1] + rz * L2[2]), 55);
+          // the marquee behind the viewer: a band of warm lamps just below the horizon of the reflection
+          var band = Math.max(0, 1 - Math.abs(ry + 0.12) / 0.07) * (0.55 + 0.45 * Math.sin(Math.atan2(rx, rz) * 23 + rot * 4));
+          var room = 0.12 + 0.6 * Math.pow(hz(i * 53 + j * 11 + Math.floor(rot * 6)), 1.6), edge = 0.3 + 0.7 * Math.pow(nz, 0.45);
+          var lit = Math.min(1.2, h + band * 0.65);
+          var R = Math.min(255, (40 + 150 * room) * edge + 250 * lit), G = Math.min(255, (12 + 34 * room) * edge + 226 * lit), Bc = Math.min(255, (16 + 36 * room) * edge + 176 * lit);
+          x.fillStyle = 'rgb(' + (R | 0) + ',' + (G | 0) + ',' + (Bc | 0) + ')';
+          var sh = 0.07, a0 = la0 + (la1 - la0) * sh, a1 = la1 - (la1 - la0) * sh, b0 = lo0 + w * sh, b1 = lo1 - w * sh;
+          x.beginPath();
+          [[a0, b0], [a0, b1], [a1, b1], [a1, b0]].forEach(function (q, m) { var X1 = cx + r * Math.cos(q[0]) * Math.sin(q[1]), Y1 = cy - r * Math.sin(q[0]); if (m) x.lineTo(X1, Y1); else x.moveTo(X1, Y1); });
+          x.fill();
+          if (lit > 0.55) gl.push([cx + r * cl * Math.sin(lom), cy - r * Math.sin(lam), lit]);
+        }
+      }
+      var sg = x.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);   // the sphere's own shading
+      sg.addColorStop(0, 'rgba(245,231,179,.10)'); sg.addColorStop(0.7, 'rgba(22,6,10,0)'); sg.addColorStop(1, 'rgba(22,6,10,.55)');
+      x.fillStyle = sg; x.beginPath(); x.arc(cx, cy, r, 0, PI * 2); x.fill();
+      x.globalCompositeOperation = 'lighter';
+      gl.forEach(function (g) { var z = r * (0.35 + 0.5 * g[2]) * (0.7 + 0.3 * Math.sin(T * 9 + g[0])); x.globalAlpha = k * Math.min(1, g[2]); x.drawImage(ST, g[0] - z, g[1] - z, z * 2, z * 2); });
+    }
+    function draw() {
+      var T = B.rm ? 0 : clock(), rot = T * PI * 2 / 48;
+      x.setTransform(P.dpr, 0, 0, P.dpr, 0, 0); x.clearRect(0, 0, P.W, P.H);
+      // reflections sweeping the room
+      x.globalCompositeOperation = 'lighter';
+      P.spots.forEach(function (q) {
+        var a = q.lon + rot, f = Math.cos(a);
+        if (f <= 0) return;
+        var px = P.cx + P.W * 0.56 * Math.sin(a), py = P.H * 0.5 + P.H * 0.46 * q.lat, sx = q.r * (0.5 + 0.5 * f);
+        x.globalAlpha = P.k * q.b * Math.pow(f, 0.6);
+        x.drawImage(SS, px - sx * 2, py - q.r * 2, sx * 4, q.r * 4);
+      });
+      // the marquee: sockets, then the lamps
+      x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1; x.fillStyle = '#3A1015';
+      P.bulbs.forEach(function (b) { x.beginPath(); x.arc(b.x, b.y, DESK ? 3.4 : 2.6, 0, PI * 2); x.fill(); });
+      x.globalCompositeOperation = 'lighter';
+      var R2 = DESK ? 16 : 12;
+      P.bulbs.forEach(function (b) {
+        var on = Math.max(0, Math.min(1, (P.lit - b.o) * 5));
+        if (!on) return;
+        x.globalAlpha = on * (0.84 + 0.16 * Math.sin(PI * 2 * (b.i / 9 - T * 0.45)));
+        x.drawImage(SB, b.x - R2, b.y - R2, R2 * 2, R2 * 2);
+      });
+      if (BALL) ball(T);
+      x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+    }
+    layout();
+    function run(on) { if (on === P.on) return; P.on = on; if (on && !B.rm) gsap.ticker.add(draw); else gsap.ticker.remove(draw); draw(); }
+    new IntersectionObserver(function (en) {
+      var e = en[0];
+      run(e.isIntersecting);
+      if (e.intersectionRatio >= 0.3 && !P.seen) {
+        P.seen = true; log('pista');
+        if (B.rm) { P.lit = 1.2; P.k = 1; draw(); return; }
+        gsap.to(P, { lit: 1.2, duration: 1.8, ease: 'power1.inOut' });
+        gsap.to(P, { k: 1, duration: 1.4, ease: 'sine.out', delay: 0.6 });
+      }
+    }, { threshold: [0, 0.3] }).observe(sec);
+    addEventListener('resize', function () { layout(); draw(); });
+    GX.debug.pista = P;
+  }
+
   /* ------------------------------------------------------------ boot */
 
   function swap() {
@@ -1491,5 +1650,5 @@
 
   Promise.all([art, domReady, libs.catch(function () {})]).then(function () { heroArt(); carnet(); });
   // the box office is built only once the engine stylesheet is confirmed; otherwise the native block sells on its own
-  Promise.all([art, domReady, readyP]).then(boxOffice);
+  Promise.all([art, domReady, readyP]).then(function () { boxOffice(); pista(); roomWatch(); });
 })();
