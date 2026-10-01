@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.3.1
+ * GalleriaBallroom engine v0.4.0
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.3.1';
+  var VERSION = '0.4.0';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -1072,6 +1072,188 @@
     GX.debug.carnetHold = hold; GX.debug.carnetPull = pull; GX.debug.carnetRelease = release;
   }
 
+  /* ------------------------------------------------------------ scene 3: the box office
+     Three tickets built over the native Products block, which stays hidden and keeps doing the
+     selling: our Reserve clicks its button and the MailerLite checkout opens (MD 15, proven by P4).
+     The current lot is the lowest one present in the native block; its name and price are read from
+     it. The others come from the table below. Each state is a print technique: the current ticket
+     is printed on cream stock in oxblood ink; a closed one is a blind emboss on oxblood stock; the
+     next one is engraved in line. Sales close by the clock at the end of November 10 in Orlando.
+     Passage: on desktop velvet drapes come down beside the checkout like a box-office window; on a
+     phone a curtain closes and opens again in about 0.4 s. Thanks: when the checkout reports a
+     completed purchase, a curtain closes on "Your place is confirmed." and opens again by itself.
+     Review hashes: #closed (sales closed), #lot2, #lot3 (another lot current). */
+
+  var LOTS = [
+    { n: 1, roman: 'I', key: 'first', name: 'First Release', price: '$65' },
+    { n: 2, roman: 'II', key: 'second', name: 'Second Release', price: '$85' },
+    { n: 3, roman: 'III', key: 'final', name: 'Final Release', price: '$115' }
+  ];
+  var CLOSE_AT = Date.UTC(2026, 10, 11, 4, 59, 0);   // 11:59 PM, November 10, Orlando (EST)
+  var PSEL = { card: '[data-type="product-wrapper"]', btn: '[data-button-type="mailerlite-checkout"]', title: 'h1,h2,h3,h4', price: '.font-bold' };
+  function salesClosed() { return /closed/.test(HASH) || Date.now() >= CLOSE_AT; }
+
+  function readProducts() {
+    return [].map.call(doc.querySelectorAll(PSEL.card), function (w) {
+      var t = ((w.querySelector(PSEL.title) || {}).textContent || '').trim(), pr = ((w.querySelector(PSEL.price) || {}).textContent || '').trim();
+      var lot = LOTS.filter(function (L) { return new RegExp(L.key + ' release', 'i').test(t); })[0];
+      return lot ? { lot: lot, price: pr.replace(/\.00$/, ''), open: function () { var b = w.querySelector(PSEL.btn); if (b) b.click(); } } : null;
+    }).filter(Boolean).sort(function (a, b) { return a.lot.n - b.lot.n; });
+  }
+
+  function ticketHTML(L, state, price) {
+    var name = L.name.split(' ');
+    return '<article class="gx-ticket" data-state="' + state + '" aria-label="' + L.name + ', ' + price + (state === 'closed' ? ', closed' : '') + '">' +
+      '<div class="gx-ticket__main"><p class="gx-ticket__num" aria-hidden="true">' + L.roman + '</p>' +
+      '<p class="gx-ticket__admit">Admit one</p>' +
+      '<h3 class="gx-ticket__name">' + name[0] + '<br>' + name[1] + '</h3>' +
+      '<p class="gx-ticket__price">' + price + '</p>' + (state === 'closed' ? '<p class="gx-ticket__flag">Closed</p>' : '') + '</div>' +
+      '<div class="gx-ticket__stub"><p class="gx-ticket__compact" aria-hidden="true">' + L.roman + ' ' + L.name + ' ' + price + '</p><p class="gx-ticket__when">November 19<br>6 PM</p>' +
+      (state === 'current' ? '<button type="button" class="gx-ticket__reserve">Reserve</button>' : '') + '</div></article>';
+  }
+
+  function boxOffice() {
+    var sec = doc.getElementById('gx-tickets'), row = sec && sec.querySelector('.gx-tix__row');
+    if (!row || row.firstChild) return;
+    var prods = readProducts(), force = (HASH.match(/lot([23])/) || [])[1], cur = prods[0] || null;
+    if (force) cur = prods.filter(function (p) { return p.lot.n === +force; })[0] || cur;
+    var closedNow = salesClosed() || !cur;
+    row.innerHTML = LOTS.map(function (L) {
+      var state = closedNow ? 'closed' : (L.n < cur.lot.n ? 'closed' : (L.n === cur.lot.n ? 'current' : 'next'));
+      return ticketHTML(L, state, L.n === (cur && cur.lot.n) && cur.price ? cur.price : L.price);
+    }).join('');
+    GX.debug.box = { current: cur ? cur.lot.name : null, closed: closedNow, found: prods.map(function (p) { return p.lot.n; }) };
+    if (closedNow) {
+      var note = sec.querySelector('.gx-tix__note');
+      if (note) note.textContent = 'Sales are closed.';
+      [].forEach.call(doc.querySelectorAll('a[href="#gx-tickets"]'), function (a) {   // a call to action must never contradict the closing
+        var sp = doc.createElement('span'); sp.className = a.className + ' gx-cta-closed'; sp.textContent = 'Sales are closed.'; a.parentNode.replaceChild(sp, a);
+      });
+      return;
+    }
+    var btn = row.querySelector('.gx-ticket__reserve'), tk = row.querySelector('[data-state="current"]');
+    btn.addEventListener('click', function () { passage(cur.open); });
+    [].forEach.call(doc.querySelectorAll('a[href="#gx-tickets"]'), function (a) {
+      a.addEventListener('click', function (e) { e.preventDefault(); sec.scrollIntoView({ behavior: B.rm ? 'auto' : 'smooth', block: 'center' }); });
+    });
+    // the cue: on desktop the follow spot is struck on the ticket you can buy; on a phone, one pass of foil
+    var cued = false;
+    new IntersectionObserver(function (en) {
+      if (!en[0].isIntersecting || cued) return;
+      cued = true; log('box-cue');
+      if (B.rm) return;
+      if (DESK) spotOn(sec, tk); else tk.classList.add('gx-foilpass');
+    }, { threshold: 0.45 }).observe(tk);
+    modalWatch();
+  }
+
+  // a second follow spot, held on the current ticket
+  function spotOn(sec, tk) {
+    var el = doc.createElement('div'); el.className = 'gx-spot gx-spot--tix'; el.setAttribute('aria-hidden', 'true'); sec.appendChild(el);
+    var P = { k: 0 };
+    function place() {
+      var s = sec.getBoundingClientRect(), r = tk.getBoundingClientRect();
+      el.style.transform = 'translate3d(' + (r.left + r.width / 2 - s.left - el.offsetWidth / 2).toFixed(1) + 'px,' + (r.top + r.height * 0.42 - s.top - el.offsetHeight / 2).toFixed(1) + 'px,0)';
+    }
+    place(); addEventListener('resize', place);
+    // softer than the hero's: on cream stock the full lamp burns the ticket to yellow
+    gsap.timeline({ onUpdate: function () { el.style.opacity = (P.k * 0.55).toFixed(3); } })
+      .to(P, { k: 0.5, duration: 0.05, ease: 'none' }).to(P, { k: 0.12, duration: 0.07, ease: 'none' })
+      .to(P, { k: 0.72, duration: 0.05, ease: 'none' }).to(P, { k: 0.38, duration: 0.08, ease: 'none' })
+      .to(P, { k: 1, duration: 0.6, ease: 'power2.out' });
+  }
+
+  /* the passage to the checkout */
+  var pass = null;
+  function velvet(cls) { var d = doc.createElement('div'); d.className = 'gx-velvet ' + cls; d.setAttribute('aria-hidden', 'true'); return d; }
+  function passage(openNative) {
+    var X = audio();
+    if (X && live()) swish(X, X.c.currentTime + 0.01, DESK ? 0.8 : 0.42, 0.05);
+    if (B.rm && !DESK) { openNative(); return; }
+    if (!DESK) {
+      var L = doc.createElement('div'); L.className = 'gx-pass gx-pass--phone';
+      var a = velvet('gx-pass__half'), b = velvet('gx-pass__half gx-pass__half--r'); L.appendChild(a); L.appendChild(b); doc.body.appendChild(L);
+      gsap.timeline({ onComplete: function () { L.remove(); } })
+        .fromTo(a, { xPercent: -101 }, { xPercent: 0, duration: 0.18, ease: 'power2.in' }, 0)
+        .fromTo(b, { xPercent: 101 }, { xPercent: 0, duration: 0.18, ease: 'power2.in' }, 0)
+        .call(openNative, null, 0.19)
+        .to(a, { xPercent: -101, duration: 0.23, ease: 'power2.out' }, 0.21)
+        .to(b, { xPercent: 101, duration: 0.23, ease: 'power2.out' }, 0.21);
+      return;
+    }
+    if (pass) pass.remove();
+    pass = doc.createElement('div'); pass.className = 'gx-pass gx-pass--desk';
+    var val = velvet('gx-pass__valance'), l = velvet('gx-pass__side'), r = velvet('gx-pass__side gx-pass__side--r');
+    pass.appendChild(val); pass.appendChild(l); pass.appendChild(r); doc.body.appendChild(pass);
+    openNative();
+    if (B.rm) return;
+    gsap.timeline()
+      .fromTo(pass, { opacity: 0 }, { opacity: 1, duration: 0.25 }, 0)
+      .fromTo([l, r], { yPercent: -100 }, { yPercent: 0, duration: 0.75, ease: 'power3.out' }, 0.05)
+      .fromTo(val, { yPercent: -100 }, { yPercent: 0, duration: 0.6, ease: 'power3.out' }, 0);
+  }
+  function passOut() {
+    if (!pass) return;
+    var p = pass; pass = null;
+    gsap.timeline({ onComplete: function () { p.remove(); } })
+      .to(p.querySelectorAll('.gx-pass__side,.gx-pass__valance'), { yPercent: -100, duration: 0.5, ease: 'power2.in' }, 0)
+      .to(p, { opacity: 0, duration: 0.3 }, 0.25);
+  }
+
+  function modalWatch() {
+    var dlg = doc.getElementById('ml-checkout-modal');
+    if (!dlg || dlg.gxWatched) return;
+    dlg.gxWatched = true;
+    var close = doc.createElement('button');
+    close.type = 'button'; close.className = 'gx-close'; close.textContent = 'Close';
+    close.addEventListener('click', function (e) { e.stopPropagation(); if (window.nblCloseCheckoutModal) window.nblCloseCheckoutModal(); });
+    dlg.appendChild(close);
+    var was = dlg.classList.contains('modal-open');
+    new MutationObserver(function () {
+      var now = dlg.classList.contains('modal-open');
+      if (was && !now) passOut();
+      was = now;
+    }).observe(dlg, { attributes: true, attributeFilter: ['class'] });
+    addEventListener('keydown', function (e) { if (e.key === 'Escape' && dlg.classList.contains('modal-open') && window.nblCloseCheckoutModal) window.nblCloseCheckoutModal(); });
+    addEventListener('message', function (e) {
+      if (!/(^|\.)mailerlite\.com$/.test((e.origin || '').replace(/^https?:\/\//, ''))) return;
+      var d = e.data || {};
+      if (d.type === 'checkout_complete') { log('checkout_complete'); gsap.delayedCall(1.2, thanks); }
+      if (d.groot && d.groot.checkout_close) passOut();
+    });
+  }
+
+  /* thanks: the reward for buying. The curtain closes, the confirmation is projected on it, then it
+     opens again by itself, or sooner on a click, a tap or Escape. Nobody is held behind it. */
+  function thanks() {
+    if (doc.querySelector('.gx-thanks')) return;
+    var T = doc.createElement('div'); T.className = 'gx-thanks'; T.setAttribute('role', 'status');
+    var a = velvet('gx-thanks__half'), b = velvet('gx-thanks__half gx-thanks__half--r');
+    var msg = doc.createElement('div'); msg.className = 'gx-thanks__msg';
+    msg.innerHTML = '<p class="gx-thanks__big">Your place is confirmed.</p><p class="gx-thanks__small">See you on November 19.</p><button type="button" class="gx-thanks__go">Continue</button>';
+    T.appendChild(a); T.appendChild(b); T.appendChild(msg); doc.body.appendChild(T);
+    var X = live(); if (X) swish(X, X.c.currentTime + 0.01, 0.9, 0.06);
+    var done = false, out;
+    function reopen() {
+      if (done) return; done = true; out && out.kill();
+      var Y = live(); if (Y) swish(Y, Y.c.currentTime + 0.01, 1.1, 0.05);
+      gsap.timeline({ onComplete: function () { T.remove(); } })
+        .to(msg, { opacity: 0, duration: 0.3 }, 0)
+        .to(a, { xPercent: -101, duration: B.rm ? 0 : 1.1, ease: 'power2.inOut' }, 0.15)
+        .to(b, { xPercent: 101, duration: B.rm ? 0 : 1.1, ease: 'power2.inOut' }, 0.15);
+    }
+    gsap.timeline()
+      .fromTo(a, { xPercent: -101 }, { xPercent: 0, duration: B.rm ? 0 : 0.9, ease: 'power2.inOut' }, 0)
+      .fromTo(b, { xPercent: 101 }, { xPercent: 0, duration: B.rm ? 0 : 0.9, ease: 'power2.inOut' }, 0)
+      .call(function () { if (window.nblCloseCheckoutModal) window.nblCloseCheckoutModal(); passOut(); }, null, 0.9)
+      .fromTo(msg, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: 'none' }, 0.95)
+      .call(function () { msg.classList.add('gx-thanks__msg--lit'); msg.querySelector('.gx-thanks__go').focus({ preventScroll: true }); }, null, 1.2);
+    out = gsap.delayedCall(6.5, reopen);
+    T.addEventListener('click', reopen);
+    addEventListener('keydown', function k(e) { if (e.key === 'Escape') { reopen(); removeEventListener('keydown', k); } });
+  }
+  GX.debug.thanks = thanks;
+
   /* ------------------------------------------------------------ boot */
 
   function swap() {
@@ -1121,6 +1303,7 @@
     }
   }
 
+  var readyFn, readyP = new Promise(function (ok) { readyFn = ok; });
   var libs = Promise.all([js(GSAP + 'gsap.min.js'), js(GSAP + 'Draggable.min.js')]);
   var art = js(DIST + 'galleria-art.js').catch(function () {});
   var domReady = new Promise(function (ok) {
@@ -1146,7 +1329,10 @@
     };
     root.classList.add('gx-ready');
     log('ready');
+    readyFn();
   }, function (e) { GX.debug.error = String(e && e.message || e); });
 
   Promise.all([art, domReady, libs.catch(function () {})]).then(function () { heroArt(); carnet(); });
+  // the box office is built only once the engine stylesheet is confirmed; otherwise the native block sells on its own
+  Promise.all([art, domReady, readyP]).then(boxOffice);
 })();
