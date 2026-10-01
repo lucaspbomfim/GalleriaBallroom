@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.5.0
+ * GalleriaBallroom engine v0.5.1
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.5.0';
+  var VERSION = '0.5.1';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -1439,12 +1439,53 @@
   }
 
   /* ------------------------------------------------------------ scene 4: the dance floor
-     A marquee arch of bulbs around the last line, lit from both feet up to the crown when the floor
-     comes into view, then breathing in a slow chase. A mirror ball hangs at the crown: tile by tile,
-     each facet reflects the room and two stage lamps, and the brightest catch a four-point glint. Its
-     reflections sweep the room, one turn every 48 s. One 2D canvas, drawn only while the floor is on
-     screen; still with reduced motion. */
-  var BALL = true;
+     A mirror ball in WebGL, tile by tile: each facet is a mirror set a little askew, reflecting the
+     room (velvet, footlights, stage lamps), with grout, a darker limb and four-point glints where a
+     facet catches a lamp. It turns in a seamless loop (one turn every 40 s). Its reflections are
+     computed, not scattered: each facet sends the key lamp onto the wall behind, so the little squares
+     of light sweep the room together, with the ball. Around the words, an Art Deco crown: stepped
+     arches in champagne line, lit from the feet to the crown by running heads of light that leave the
+     line lit behind them. #beams adds searchlights crossing behind it (a variant under test). */
+  var BALL_FRAG = [
+    'precision highp float;',
+    'uniform vec2 R;uniform float S;uniform float RB;uniform float ROT;uniform float K;uniform float NL;uniform vec4 FL[5];uniform vec3 LA;',
+    'const vec3 OX=vec3(100.,13.,22.)/255.;const vec3 SH=vec3(42.,12.,16.)/255.;const vec3 CH=vec3(211.,182.,156.)/255.;const vec3 FO=vec3(245.,231.,179.)/255.;',
+    'float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+    'vec3 env(vec3 d){',
+    ' float up=d.y,az=atan(d.x,d.z);',
+    ' vec3 c=mix(OX*1.5,SH*.9,smoothstep(-.25,.75,up));',           // the room: oxblood walls lit warm, the ceiling in shadow
+    ' c*=.62+.38*(.5+.5*sin(az*38.));',                             // velvet pleats round the room
+    ' c+=CH*.85*exp(-pow((up+.16)/.05,2.))*(.6+.4*sin(az*9.));',     // the footlights, a warm band below the horizon
+    ' c+=CH*.35*exp(-pow((up-.42)/.08,2.))*(.5+.5*sin(az*5.+1.));',  // the crown's lit lines, above
+    ' vec3 L1=LA,L2=normalize(vec3(.62,.28,.73)),L3=normalize(vec3(.05,.65,.75));',
+    ' c+=FO*(pow(max(dot(d,L1),0.),300.)*3.4+pow(max(dot(d,L2),0.),360.)*2.8+pow(max(dot(d,L3),0.),600.)*2.2)+CH*(pow(max(dot(d,L1),0.),30.)*.45+pow(max(dot(d,L2),0.),30.)*.3);',
+    ' for(int k=0;k<6;k++){float a=float(k)*1.047+.4;vec3 Lk=normalize(vec3(sin(a)*.9,-.05+.25*cos(a*2.),cos(a)*.9));c+=FO*pow(max(dot(d,Lk),0.),900.)*1.6;}',
+    ' return c;}',
+    'void main(){',
+    ' vec2 pc=(gl_FragCoord.xy/R-.5)*S;vec2 d=pc/RB;float q=dot(d,d);vec4 col=vec4(0.);',
+    ' if(q<1.){',
+    '  vec3 n=vec3(d,sqrt(1.-q));float cr=cos(ROT),sr=sin(ROT);',
+    '  vec3 o=vec3(cr*n.x-sr*n.z,n.y,sr*n.x+cr*n.z);',
+    '  float lat=asin(clamp(o.y,-1.,1.)),lon=atan(o.x,o.z);',
+    '  float fi=(lat+1.5707963)/3.1415927*NL,i=floor(fi),latc=(i+.5)/NL*3.1415927-1.5707963;',
+    '  float NO=max(6.,floor(2.*NL*cos(latc)+.5)),fj=(lon/6.2831853+.5)*NO,j=floor(fj),lonc=((j+.5)/NO-.5)*6.2831853;',
+    '  vec3 tn=vec3(cos(latc)*sin(lonc),sin(latc),cos(latc)*cos(lonc));',
+    '  tn=normalize(tn+(vec3(h21(vec2(i,j)),h21(vec2(j,i+7.)),h21(vec2(i+3.,j+5.)))-.5)*.1);',
+    '  vec3 vn=vec3(cr*tn.x+sr*tn.z,tn.y,-sr*tn.x+cr*tn.z);',
+    '  vec3 c=env(reflect(vec3(0.,0.,-1.),vn))*(.8+.4*h21(vec2(i*1.7,j*3.1)));',
+    '  vec2 f=vec2(fract(fi),fract(fj));vec2 g=min(f,1.-f);',
+    '  float gx=g.y*(6.2831853*cos(latc)/NO)/(3.1415927/NL);',     // the grout, the same width both ways
+    '  float gm=smoothstep(.035,.11,min(g.x,gx));',
+    '  c=mix(SH*.3,c,gm);',
+    '  c*=.45+.55*smoothstep(0.,.55,n.z);',                          // the limb falls into shadow
+    '  float a=1.-smoothstep(1.-1.6/RB,1.,sqrt(q));',
+    '  col=vec4(c*a,a);}',
+    ' for(int k=0;k<5;k++){vec4 F=FL[k];if(F.w>0.){vec2 e=pc-F.xy;float z=F.z;',
+    '  float st=exp(-pow(e.y/(z*.05),2.))*max(0.,1.-abs(e.x)/z)+exp(-pow(e.x/(z*.05),2.))*max(0.,1.-abs(e.y)/z);',
+    '  st=st*.9+exp(-dot(e,e)/(z*z*.012));col.rgb+=FO*st*F.w;col.a=max(col.a,clamp(st*F.w,0.,1.));}}',
+    ' gl_FragColor=vec4(col.rgb*K,col.a*K);}'
+  ].join('\n');
+  function h21(x, y) { var v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); }
   function logoSVG(key, cls) {
     var L = LOGO && LOGO[key];
     if (!L) return '';
@@ -1458,102 +1499,193 @@
       sig.setAttribute('aria-label', 'Galleria × Beau Monde Builders');
       sig.innerHTML = logoSVG('galleria', 'gx-sig__g') + '<span class="gx-sig__x" aria-hidden="true">×</span>' + logoSVG('beau', 'gx-sig__b');
     }
-    var stage = sec.querySelector('.gx-pista__stage'), cv = doc.createElement('canvas');
-    cv.className = 'gx-pista__fx'; cv.setAttribute('aria-hidden', 'true'); sec.insertBefore(cv, sec.firstChild);
-    var x = cv.getContext('2d');
+    var stage = sec.querySelector('.gx-pista__stage'), fx = doc.createElement('canvas'), bc = doc.createElement('canvas');
+    fx.className = 'gx-pista__fx'; bc.className = 'gx-pista__ball'; fx.setAttribute('aria-hidden', 'true'); bc.setAttribute('aria-hidden', 'true');
+    sec.insertBefore(bc, sec.firstChild); sec.insertBefore(fx, sec.firstChild);
+    var x = fx.getContext('2d');
     if (!x || !stage) return;
-    var PI = Math.PI, P = { W: 0, H: 0, dpr: 1, bulbs: [], spots: [], lit: 0, k: 0, on: false, seen: false, cx: 0, crown: 0, rb: 0 };
-    function sprite(r, stops) {
-      var c = doc.createElement('canvas'), n = Math.ceil(r * 2); c.width = c.height = n;
-      var g = c.getContext('2d'), gr = g.createRadialGradient(r, r, 0, r, r, r);
-      stops.forEach(function (st) { gr.addColorStop(st[0], st[1]); }); g.fillStyle = gr; g.fillRect(0, 0, n, n); return c;
-    }
-    var SB = sprite(32, [[0, 'rgba(255,250,232,1)'], [0.12, 'rgba(255,243,205,.95)'], [0.28, 'rgba(245,231,179,.4)'], [0.6, 'rgba(211,182,156,.1)'], [1, 'rgba(211,182,156,0)']]);
-    var SS = sprite(16, [[0, 'rgba(255,249,232,1)'], [0.42, 'rgba(250,238,200,.8)'], [0.62, 'rgba(245,231,179,.22)'], [1, 'rgba(245,231,179,0)']]);   // a reflection: a small bright patch, soft only at its rim
-    var ST = (function () {   // the four-point glint
-      var c = doc.createElement('canvas'); c.width = c.height = 64; var g = c.getContext('2d');
-      [[64, 3], [3, 64]].forEach(function (d) { var gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,250,232,1)'); gr.addColorStop(1, 'rgba(245,231,179,0)'); g.fillStyle = gr; g.fillRect(32 - d[0] / 2, 32 - d[1] / 2, d[0], d[1]); });
-      return c;
-    })();
-    for (var i = 0, N = DESK ? 110 : 54; i < N; i++) P.spots.push({ lon: hz(i * 13.1) * PI * 2, lat: hz(i * 7.7 + 3) * 2 - 1, r: 1.4 + Math.pow(hz(i * 3.3), 2) * (DESK ? 4.2 : 3), b: 0.3 + hz(i * 5.9) * 0.6 });
+    var PI = Math.PI, NL = DESK ? 22 : 16, LK = [-0.55, 0.45, 0.7];
+    var P = { W: 0, H: 0, dpr: 1, cx: 0, by: 0, rb: 0, S: 0, rings: [], lit: 0, k: 0, on: false, seen: false, rot: 0.6, spin: 0, T: null, sy: scrollY, ig: 0, flash: 0, ray: 0, ignited: false, lamp: { x: -0.55, y: 0.45, tx: -0.55, ty: 0.45 }, ttop: 0, hw0: 0 };
+    (function () { var l = Math.sqrt(LK[0] * LK[0] + LK[1] * LK[1] + LK[2] * LK[2]); LK = LK.map(function (v) { return v / l; }); })();
+    // the ball's own WebGL canvas
+    var G = null;
+    try {
+      var g = bc.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false });
+      if (g) {
+        var sh = function (t, src) { var o = g.createShader(t); g.shaderSource(o, src); g.compileShader(o); if (!g.getShaderParameter(o, g.COMPILE_STATUS)) { GX.debug.ballError = g.getShaderInfoLog(o); return null; } return o; };
+        var vs = sh(g.VERTEX_SHADER, VERT), fs = sh(g.FRAGMENT_SHADER, BALL_FRAG);
+        if (vs && fs) {
+          var pr = g.createProgram(); g.attachShader(pr, vs); g.attachShader(pr, fs); g.linkProgram(pr); g.useProgram(pr);
+          g.bindBuffer(g.ARRAY_BUFFER, g.createBuffer()); g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+          var ap = g.getAttribLocation(pr, 'p'); g.enableVertexAttribArray(ap); g.vertexAttribPointer(ap, 2, g.FLOAT, false, 0, 0);
+          var U = {}; ['R', 'S', 'RB', 'ROT', 'K', 'NL', 'LA'].forEach(function (n) { U[n] = g.getUniformLocation(pr, n); }); U.FL = g.getUniformLocation(pr, 'FL[0]');
+          G = { g: g, U: U, fl: new Float32Array(20) };
+        }
+      }
+    } catch (e) { G = null; }
+    // the crown: stepped arches, each side a path from the foot to the crown
     function layout() {
       var r = sec.getBoundingClientRect(), s = stage.getBoundingClientRect();
       P.W = r.width; P.H = r.height; P.dpr = Math.min(window.devicePixelRatio || 1, DESK ? 2 : 1.5);
-      cv.width = Math.round(P.W * P.dpr); cv.height = Math.round(P.H * P.dpr);
-      var pad = DESK ? 60 : 26, cx = s.left - r.left + s.width / 2, rad = Math.min(P.W * (DESK ? 0.4 : 0.46), Math.max(s.width / 2 + pad, DESK ? 250 : 0));
-      var cy = s.top - r.top + rad * 0.3, bot = s.bottom - r.top + pad, sp = DESK ? 24 : 17;
-      P.cx = cx; P.crown = cy - rad; P.rb = DESK ? 58 : 36; P.bulbs = [];
-      var side = Math.max(0, bot - cy), arc = PI * rad, total = side * 2 + arc, n = Math.round(total / sp);
-      for (var k = 0; k <= n; k++) {
-        var d = k * total / n, px, py;
-        if (d <= side) { px = cx - rad; py = bot - d; }
-        else if (d <= side + arc) { var a = PI + (d - side) / rad; px = cx + rad * Math.cos(a); py = cy + rad * Math.sin(a); }
-        else { px = cx + rad; py = cy + (d - side - arc); }
-        P.bulbs.push({ x: px, y: py, o: Math.min(d, total - d) / (total / 2), i: k });
+      fx.width = Math.round(P.W * P.dpr); fx.height = Math.round(P.H * P.dpr);
+      P.cx = s.left - r.left + s.width / 2; P.rb = DESK ? 74 : 46;
+      var top = s.top - r.top, pad = DESK ? 64 : 24;
+      P.by = Math.max(P.rb + (DESK ? 70 : 40), top - (DESK ? 120 : 96));
+      P.S = Math.round(P.rb * 3.2);
+      bc.style.left = (P.cx - P.S / 2) + 'px'; bc.style.top = (P.by - P.S / 2) + 'px'; bc.style.width = bc.style.height = P.S + 'px';
+      bc.width = bc.height = Math.round(P.S * P.dpr);
+      if (G) G.g.viewport(0, 0, bc.width, bc.height);
+      var n = DESK ? 3 : 2, gap = DESK ? 16 : 11, st = DESK ? 30 : 18, sh2 = DESK ? 34 : 22;
+      var hw0 = Math.min(P.W * (DESK ? 0.36 : 0.43), s.width / 2 + pad), bot = s.bottom - r.top + pad;
+      P.hw0 = hw0; P.ttop = top;
+      P.rings = [];
+      for (var k = 0; k < n; k++) {
+        var hw = hw0 + k * gap, yt = P.by + P.rb * 0.25 - k * gap, y1 = yt + sh2 * 2.2, y2 = yt + sh2;
+        [-1, 1].forEach(function (sd) {
+          var X = function (dx) { return P.cx + sd * dx; };
+          var pts = [[X(hw), bot], [X(hw), y1], [X(hw - st), y1], [X(hw - st), y2], [X(hw - 2 * st), y2], [X(hw - 2 * st), yt], [P.cx, yt]];
+          var L = [0];
+          for (var m = 1; m < pts.length; m++) L.push(L[m - 1] + Math.hypot(pts[m][0] - pts[m - 1][0], pts[m][1] - pts[m - 1][1]));
+          P.rings.push({ pts: pts, L: L, len: L[L.length - 1], k: k, d: k * 0.22 });
+        });
       }
     }
-    function ball(T) {
-      var cx = P.cx, r = P.rb, cy = P.crown + r * 0.55, rot = T * PI * 2 / 48, k = P.k;
-      x.globalCompositeOperation = 'source-over'; x.globalAlpha = k;
-      x.strokeStyle = 'rgba(211,182,156,.5)'; x.lineWidth = 1; x.beginPath(); x.moveTo(cx, 0); x.lineTo(cx, cy - r); x.stroke();
-      x.fillStyle = '#16060A'; x.beginPath(); x.arc(cx, cy, r, 0, PI * 2); x.fill();
-      var L1 = [-0.48, 0.58, 0.66], L2 = [0.6, 0.32, 0.73], gl = [], NL = DESK ? 18 : 13;
-      for (var i = 0; i < NL; i++) {
-        var la0 = -PI / 2 + PI * i / NL, la1 = la0 + PI / NL, lam = (la0 + la1) / 2, cl = Math.cos(lam), NO = Math.max(6, Math.round((DESK ? 36 : 26) * cl));
-        for (var j = 0; j < NO; j++) {
-          var w = PI * 2 / NO, lo0 = j * w + rot + (i % 2) * w / 2, lo1 = lo0 + w, lom = lo0 + w / 2;
-          var nz = cl * Math.cos(lom);
-          if (nz < 0.04) continue;
-          // each mirror sits a little askew, so neighbours catch different parts of the room
-          var nx = cl * Math.sin(lom), ny = Math.sin(lam), jx = (hz(i * 97 + j) - 0.5) * 0.14, jy = (hz(i * 31 + j * 7) - 0.5) * 0.14;
-          nx += jx; ny += jy; var nl = Math.sqrt(nx * nx + ny * ny + nz * nz); nx /= nl; ny /= nl; nz /= nl;
-          var rx = 2 * nz * nx, ry = 2 * nz * ny, rz = 2 * nz * nz - 1;
-          var h = Math.pow(Math.max(0, rx * L1[0] + ry * L1[1] + rz * L1[2]), 40) + 0.8 * Math.pow(Math.max(0, rx * L2[0] + ry * L2[1] + rz * L2[2]), 55);
-          // the marquee behind the viewer: a band of warm lamps just below the horizon of the reflection
-          var band = Math.max(0, 1 - Math.abs(ry + 0.12) / 0.07) * (0.55 + 0.45 * Math.sin(Math.atan2(rx, rz) * 23 + rot * 4));
-          var room = 0.12 + 0.6 * Math.pow(hz(i * 53 + j * 11 + Math.floor(rot * 6)), 1.6), edge = 0.3 + 0.7 * Math.pow(nz, 0.45);
-          var lit = Math.min(1.2, h + band * 0.65);
-          var R = Math.min(255, (40 + 150 * room) * edge + 250 * lit), G = Math.min(255, (12 + 34 * room) * edge + 226 * lit), Bc = Math.min(255, (16 + 36 * room) * edge + 176 * lit);
-          x.fillStyle = 'rgb(' + (R | 0) + ',' + (G | 0) + ',' + (Bc | 0) + ')';
-          var sh = 0.07, a0 = la0 + (la1 - la0) * sh, a1 = la1 - (la1 - la0) * sh, b0 = lo0 + w * sh, b1 = lo1 - w * sh;
-          x.beginPath();
-          [[a0, b0], [a0, b1], [a1, b1], [a1, b0]].forEach(function (q, m) { var X1 = cx + r * Math.cos(q[0]) * Math.sin(q[1]), Y1 = cy - r * Math.sin(q[0]); if (m) x.lineTo(X1, Y1); else x.moveTo(X1, Y1); });
-          x.fill();
-          if (lit > 0.55) gl.push([cx + r * cl * Math.sin(lom), cy - r * Math.sin(lam), lit]);
+    function pathTo(rg, len) {   // stroke a ring from its foot up to length len
+      var p = rg.pts; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+      for (var m = 1; m < p.length; m++) {
+        if (rg.L[m] <= len) { x.lineTo(p[m][0], p[m][1]); continue; }
+        var f = (len - rg.L[m - 1]) / (rg.L[m] - rg.L[m - 1]); x.lineTo(p[m - 1][0] + (p[m][0] - p[m - 1][0]) * f, p[m - 1][1] + (p[m][1] - p[m - 1][1]) * f); break;
+      }
+    }
+    function at(rg, len) {
+      for (var m = 1; m < rg.pts.length; m++) if (rg.L[m] >= len) { var f = (len - rg.L[m - 1]) / (rg.L[m] - rg.L[m - 1]); return [rg.pts[m - 1][0] + (rg.pts[m][0] - rg.pts[m - 1][0]) * f, rg.pts[m - 1][1] + (rg.pts[m][1] - rg.pts[m - 1][1]) * f]; }
+      return rg.pts[rg.pts.length - 1];
+    }
+    var HEAD = (function () { var c = doc.createElement('canvas'); c.width = c.height = 48; var q = c.getContext('2d'), gr = q.createRadialGradient(24, 24, 0, 24, 24, 24); gr.addColorStop(0, 'rgba(255,251,236,1)'); gr.addColorStop(0.18, 'rgba(250,238,200,.9)'); gr.addColorStop(0.5, 'rgba(245,231,179,.2)'); gr.addColorStop(1, 'rgba(245,231,179,0)'); q.fillStyle = gr; q.fillRect(0, 0, 48, 48); return c; })();
+    var TILE = (function () { var c = doc.createElement('canvas'); c.width = c.height = 32; var q = c.getContext('2d'); q.filter = 'blur(2px)'; q.fillStyle = 'rgba(255,246,222,1)'; q.fillRect(9, 9, 14, 14); return c; })();
+    // the key lamp, reflected by each facet onto the wall behind
+    function shards(rot, k) {
+      if (P.ig <= 0) return;
+      var cr = Math.cos(rot), sr = Math.sin(rot), D = P.H * 0.62, step = 2;
+      x.globalCompositeOperation = 'lighter';
+      for (var i = 0; i < NL; i += 1) {
+        var latc = (i + 0.5) / NL * PI - PI / 2, NO = Math.max(6, Math.floor(2 * NL * Math.cos(latc) + 0.5));
+        for (var j = 0; j < NO; j += step) {
+          var lonc = ((j + 0.5) / NO - 0.5) * PI * 2, cl = Math.cos(latc);
+          var tx = cl * Math.sin(lonc) + (h21(i, j) - 0.5) * 0.1, ty = Math.sin(latc) + (h21(j, i + 7) - 0.5) * 0.1, tz = cl * Math.cos(lonc) + (h21(i + 3, j + 5) - 0.5) * 0.1;
+          var nl = Math.sqrt(tx * tx + ty * ty + tz * tz); tx /= nl; ty /= nl; tz /= nl;
+          var vx = cr * tx + sr * tz, vy = ty, vz = -sr * tx + cr * tz, dl = vx * LK[0] + vy * LK[1] + vz * LK[2];
+          if (dl <= 0.05) continue;
+          var rx = 2 * dl * vx - LK[0], ry = 2 * dl * vy - LK[1], rz = 2 * dl * vz - LK[2];
+          if (rz > -0.12) continue;
+          var t = D / -rz, px = P.cx + rx * t * P.ig, py = P.by - ry * t * P.ig;
+          if (px < -20 || px > P.W + 20 || py < -20 || py > P.H + 20) continue;
+          if ((px - P.cx) * (px - P.cx) + (py - P.by) * (py - P.by) < P.rb * P.rb * 1.3) continue;
+          // the light gathers in a broad band at the height of the ball and thins out above and below it
+          var band = Math.exp(-Math.pow((py - P.by - P.H * 0.12) / (P.H * 0.3), 2));
+          if (band < 0.08) continue;
+          var z = Math.max(3, Math.min(DESK ? 9 : 7, (PI / NL) * t * 0.08)), w = z * 1.9;   // stretched along the sweep
+          x.globalAlpha = k * band * Math.min(0.5, 0.15 + 0.4 * dl) * Math.min(1, 1.6 / (0.4 + t / D));
+          x.drawImage(TILE, px - w, py - z, w * 2, z * 2);
         }
       }
-      var sg = x.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);   // the sphere's own shading
-      sg.addColorStop(0, 'rgba(245,231,179,.10)'); sg.addColorStop(0.7, 'rgba(22,6,10,0)'); sg.addColorStop(1, 'rgba(22,6,10,.55)');
-      x.fillStyle = sg; x.beginPath(); x.arc(cx, cy, r, 0, PI * 2); x.fill();
-      x.globalCompositeOperation = 'lighter';
-      gl.forEach(function (g) { var z = r * (0.35 + 0.5 * g[2]) * (0.7 + 0.3 * Math.sin(T * 9 + g[0])); x.globalAlpha = k * Math.min(1, g[2]); x.drawImage(ST, g[0] - z, g[1] - z, z * 2, z * 2); });
+    }
+    function flares(rot) {
+      if (!G) return;
+      var cr = Math.cos(rot), sr = Math.sin(rot), best = [], L1 = LK.slice(), L2 = [0.62, 0.28, 0.73];
+      [L1, L2].forEach(function (L) { var l = Math.sqrt(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]); L[0] /= l; L[1] /= l; L[2] /= l; });
+      for (var i = 0; i < NL; i++) {
+        var latc = (i + 0.5) / NL * PI - PI / 2, NO = Math.max(6, Math.floor(2 * NL * Math.cos(latc) + 0.5)), cl = Math.cos(latc);
+        for (var j = 0; j < NO; j++) {
+          var lonc = ((j + 0.5) / NO - 0.5) * PI * 2, cx0 = cl * Math.sin(lonc), cz0 = cl * Math.cos(lonc);
+          var pz = -sr * cx0 + cr * cz0;
+          if (pz < 0.15) continue;
+          var tx = cx0 + (h21(i, j) - 0.5) * 0.1, ty = Math.sin(latc) + (h21(j, i + 7) - 0.5) * 0.1, tz = cz0 + (h21(i + 3, j + 5) - 0.5) * 0.1;
+          var nl = Math.sqrt(tx * tx + ty * ty + tz * tz); tx /= nl; ty /= nl; tz /= nl;
+          var vx = cr * tx + sr * tz, vy = ty, vz = -sr * tx + cr * tz, rx = 2 * vz * vx, ry = 2 * vz * vy, rz = 2 * vz * vz - 1;
+          var I = Math.pow(Math.max(0, rx * L1[0] + ry * L1[1] + rz * L1[2]), 300) * 3.4 + Math.pow(Math.max(0, rx * L2[0] + ry * L2[1] + rz * L2[2]), 360) * 2.8;
+          if (I > 0.35) best.push([(cr * cx0 + sr * cz0) * P.rb, Math.sin(latc) * P.rb, I]);
+        }
+      }
+      best.sort(function (a, b) { return b[2] - a[2]; });
+      for (var m = 0; m < 5; m++) { var b = m === 4 && P.flash > 0.01 ? [0, P.rb * 0.15, 9] : best[m]; G.fl[m * 4] = b ? b[0] : 0; G.fl[m * 4 + 1] = b ? b[1] : 0; G.fl[m * 4 + 2] = b ? P.rb * (0.65 + 0.45 * Math.min(1, b[2])) : 1; G.fl[m * 4 + 3] = b ? Math.min(1, b[2]) * 0.9 : 0; }
+      if (P.flash > 0.01) { G.fl[18] = P.rb * (1.4 + 1.6 * P.flash); G.fl[19] = P.flash; }
+    }
+    function rays() {   // the fan lit at the ignition, from the ball to the sides, clear of the words
+      if (P.ray <= 0) return;
+      x.globalCompositeOperation = 'lighter'; x.strokeStyle = '#F5E7B3';
+      for (var sd = -1; sd <= 1; sd += 2) for (var m = 0; m < 7; m++) {
+        var a = (10 + m * 5.5) * PI / 180, ca = Math.cos(a), sa = Math.sin(a), r0 = P.rb * 1.25;
+        var lim = Math.min(P.hw0 * 0.92 / ca, (P.ttop - 14 - P.by) / sa), len = r0 + (lim - r0) * P.ray;
+        if (lim <= r0) continue;
+        x.globalAlpha = 0.07; x.lineWidth = 5; x.beginPath(); x.moveTo(P.cx + sd * ca * r0, P.by + sa * r0); x.lineTo(P.cx + sd * ca * len, P.by + sa * len); x.stroke();
+        x.globalAlpha = 0.42 - m * 0.03; x.lineWidth = 1; x.stroke();
+      }
+    }
+    function crown(T) {
+      var lw = DESK ? 1.2 : 1;
+      P.rings.forEach(function (rg) {
+        var prog = Math.max(0, Math.min(1, (P.lit - rg.d) / 0.78)), len = rg.len * prog;
+        if (len <= 0) return;
+        x.globalCompositeOperation = 'lighter'; x.lineJoin = 'miter';
+        x.globalAlpha = 0.09; x.lineWidth = lw * 7; x.strokeStyle = '#F5E7B3'; pathTo(rg, len); x.stroke();
+        x.globalAlpha = 0.75 - 0.18 * rg.k; x.lineWidth = lw; x.strokeStyle = '#E9D3B4'; pathTo(rg, len); x.stroke();
+        if (prog < 1) {   // the running head, its trail brighter than the lit line behind it
+          for (var m = 0; m < 6; m++) { var tl = Math.max(0, len - m * 9); var hp = at(rg, tl); x.globalAlpha = 0.5 * (1 - m / 6); x.drawImage(HEAD, hp[0] - 9, hp[1] - 9, 18, 18); }
+          var h = at(rg, len); x.globalAlpha = 1; x.drawImage(HEAD, h[0] - 16, h[1] - 16, 32, 32);
+        } else if (!B.rm) {   // now and then a pulse runs up the lit line
+          var per = 9, ph = ((T + rg.k * 0.7 + (rg.pts[0][0] < P.cx ? 0 : 0.35)) % per) / 2.2;
+          if (ph < 1) { var hp2 = at(rg, rg.len * ph); x.globalAlpha = 0.55 * Math.sin(PI * ph); x.drawImage(HEAD, hp2[0] - 12, hp2[1] - 12, 24, 24); }
+        }
+      });
     }
     function draw() {
-      var T = B.rm ? 0 : clock(), rot = T * PI * 2 / 48;
+      var T = B.rm ? 0 : clock(), dt = P.T == null ? 0 : clamp(T - P.T, 0, 0.05);
+      P.T = T;
+      if (dt > 0) {
+        if (!DESK) { var vy = (scrollY - P.sy) / dt; P.spin = Math.min(3, Math.max(P.spin, Math.abs(vy) * 0.0016)); }
+        P.sy = scrollY;
+        P.rot = (P.rot + (PI * 2 / 40 + P.spin) * dt) % (PI * 2);   // accumulated: the turn never jumps
+        P.spin *= Math.exp(-dt * 0.9);
+        P.lamp.x += (P.lamp.tx - P.lamp.x) * Math.min(1, dt * 5); P.lamp.y += (P.lamp.ty - P.lamp.y) * Math.min(1, dt * 5);
+      }
+      var ln = Math.sqrt(P.lamp.x * P.lamp.x + P.lamp.y * P.lamp.y + 0.49); LK = [P.lamp.x / ln, P.lamp.y / ln, 0.7 / ln];
+      var rot = P.rot;
       x.setTransform(P.dpr, 0, 0, P.dpr, 0, 0); x.clearRect(0, 0, P.W, P.H);
-      // reflections sweeping the room
-      x.globalCompositeOperation = 'lighter';
-      P.spots.forEach(function (q) {
-        var a = q.lon + rot, f = Math.cos(a);
-        if (f <= 0) return;
-        var px = P.cx + P.W * 0.56 * Math.sin(a), py = P.H * 0.5 + P.H * 0.46 * q.lat, sx = q.r * (0.5 + 0.5 * f);
-        x.globalAlpha = P.k * q.b * Math.pow(f, 0.6);
-        x.drawImage(SS, px - sx * 2, py - q.r * 2, sx * 4, q.r * 4);
-      });
-      // the marquee: sockets, then the lamps
-      x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1; x.fillStyle = '#3A1015';
-      P.bulbs.forEach(function (b) { x.beginPath(); x.arc(b.x, b.y, DESK ? 3.4 : 2.6, 0, PI * 2); x.fill(); });
-      x.globalCompositeOperation = 'lighter';
-      var R2 = DESK ? 16 : 12;
-      P.bulbs.forEach(function (b) {
-        var on = Math.max(0, Math.min(1, (P.lit - b.o) * 5));
-        if (!on) return;
-        x.globalAlpha = on * (0.84 + 0.16 * Math.sin(PI * 2 * (b.i / 9 - T * 0.45)));
-        x.drawImage(SB, b.x - R2, b.y - R2, R2 * 2, R2 * 2);
-      });
-      if (BALL) ball(T);
+      shards(rot, P.k);
+      x.globalCompositeOperation = 'source-over'; x.globalAlpha = 0.55 * P.k; x.strokeStyle = '#D3B69C'; x.lineWidth = 1;
+      x.beginPath(); x.moveTo(P.cx, 0); x.lineTo(P.cx, P.by - P.rb); x.stroke();
+      crown(T);
+      rays();
       x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+      if (G) {
+        flares(rot);
+        var g2 = G.g, U2 = G.U;
+        g2.uniform2f(U2.R, bc.width, bc.height); g2.uniform1f(U2.S, P.S); g2.uniform1f(U2.RB, P.rb); g2.uniform1f(U2.ROT, rot); g2.uniform1f(U2.K, P.k); g2.uniform1f(U2.NL, NL); g2.uniform3f(U2.LA, LK[0], LK[1], LK[2]);
+        g2.uniform4fv(U2.FL, G.fl); g2.clearColor(0, 0, 0, 0); g2.clear(g2.COLOR_BUFFER_BIT); g2.drawArrays(g2.TRIANGLE_STRIP, 0, 4);
+      }
     }
+    var line = sec.querySelector('.gx-pista__line');
+    // the climax: the lines meet at the ball, it flares, its light bursts into the room, the fan lights, the words catch it
+    function ignite() {
+      P.ignited = true; log('pista-ignite');
+      gsap.timeline().to(P, { flash: 1, duration: 0.09, ease: 'power2.out' }).to(P, { flash: 0, duration: 1.5, ease: 'power2.in' });
+      gsap.to(P, { ig: 1, duration: 1.2, ease: 'power3.out' });
+      gsap.to(P, { ray: 1, duration: 0.9, ease: 'power2.out', delay: 0.08 });
+      P.spin = 1.4;
+      if (line) line.classList.add('gx-lit');
+    }
+    // you hold the lamp (desktop); a click or a tap on the ball gives it a turn
+    sec.addEventListener('pointermove', function (e) {
+      if (e.pointerType !== 'mouse' || !DESK) return;
+      var r = sec.getBoundingClientRect();
+      P.lamp.tx = clamp((e.clientX - r.left - P.cx) / (P.W * 0.45), -1, 1) * 0.95; P.lamp.ty = clamp((P.by - (e.clientY - r.top)) / (P.H * 0.55), -0.5, 0.95);
+    });
+    sec.addEventListener('pointerleave', function () { P.lamp.tx = -0.55; P.lamp.ty = 0.45; });
+    sec.addEventListener('pointerdown', function (e) {
+      var r = sec.getBoundingClientRect(), dx = e.clientX - r.left - P.cx, dy = e.clientY - r.top - P.by;
+      if (dx * dx + dy * dy < P.rb * P.rb * 1.4) { P.spin = Math.min(4, P.spin + 2.4); log('pista-spin'); }
+    });
     layout();
     function run(on) { if (on === P.on) return; P.on = on; if (on && !B.rm) gsap.ticker.add(draw); else gsap.ticker.remove(draw); draw(); }
     new IntersectionObserver(function (en) {
@@ -1561,13 +1693,13 @@
       run(e.isIntersecting);
       if (e.intersectionRatio >= 0.3 && !P.seen) {
         P.seen = true; log('pista');
-        if (B.rm) { P.lit = 1.2; P.k = 1; draw(); return; }
-        gsap.to(P, { lit: 1.2, duration: 1.8, ease: 'power1.inOut' });
-        gsap.to(P, { k: 1, duration: 1.4, ease: 'sine.out', delay: 0.6 });
+        if (B.rm) { P.lit = 2; P.k = 1; P.ig = 1; P.ray = 1; P.ignited = true; line.classList.add('gx-lit'); draw(); return; }
+        gsap.to(P, { lit: 1.5, duration: 3.2, ease: 'power1.inOut', onUpdate: function () { if (!P.ignited && P.lit >= 0.8) ignite(); } });
+        gsap.to(P, { k: 1, duration: 1.2, ease: 'sine.out', delay: 0.6 });
       }
     }, { threshold: [0, 0.3] }).observe(sec);
     addEventListener('resize', function () { layout(); draw(); });
-    GX.debug.pista = P;
+    GX.debug.pista = P; GX.debug.ignite = ignite;
   }
 
   /* ------------------------------------------------------------ boot */
