@@ -1,5 +1,5 @@
 /*!
- * GalleriaBallroom engine v0.2.0
+ * GalleriaBallroom engine v0.2.1
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
  * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
  * the tableau opening and the settled frame. Scene 1: the open tableau, with the follow spot
@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '0.2.0';
+  var VERSION = '0.2.1';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -784,7 +784,7 @@
     tl.add(houseLight(true), 'rel+=1.6');
     tl.add(strike(), 'rel+=' + (1.6 + RISE_D - 0.1));
     tl.add(sheen(), 'rel+=' + (1.6 + RISE_D + 0.35));
-    tl.call(settled);
+    tl.call(settled, null, 'rel+=' + (1.6 + RISE_T));   // the foil pass runs on after it; scrolling is not held for it
     // The sax's first note lands on the first frame of the rise. A new timeline counts from the last
     // frame drawn, not from now, so the rise time is read off the GSAP clock and anchored to that frame.
     var riseT = tl.startTime() + tl.labels.rel + 1.6;
@@ -813,15 +813,18 @@
      catches it and reads as foil. No flicker: a lamp, not film. Foil pass: one sweep of light
      over the type and the GALLERIA logo after the spot is struck. */
 
+  // Scene 1 belongs to the desktop. On phones the hero stays exactly as it was (v0.1.3): the emboss
+  // filter is expensive there, and animating it during the rise made the curtain stutter.
+  var DESK = matchMedia('(hover: hover) and (pointer: fine)').matches;
   var spot = null;
   function setupSpot() {
     var hero = doc.getElementById('gx-hero');
-    if (spot || !hero || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    if (spot || !hero || !DESK) return;
     var el = doc.createElement('div');
     el.className = 'gx-spot';
     el.setAttribute('aria-hidden', 'true');
     hero.appendChild(el);
-    var P = spot = { el: el, hero: hero, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, k: 0, home: true, T: null, placed: false };
+    var P = spot = { el: el, hero: hero, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, k: 0, iris: 0, home: true, T: null, placed: false };
     hero.addEventListener('pointermove', function (e) {
       if (B.rm || (e.pointerType && e.pointerType !== 'mouse')) return;
       var h = hero.getBoundingClientRect();
@@ -847,14 +850,25 @@
       P.x += P.vx * st; P.y += P.vy * st;
     }
     var w = P.el.offsetWidth, h = P.el.offsetHeight;
-    P.el.style.transform = 'translate3d(' + (P.x - w / 2).toFixed(1) + 'px,' + (P.y - h / 2).toFixed(1) + 'px,0) scale(' + (0.72 + 0.28 * P.k).toFixed(3) + ')';
+    P.el.style.transform = 'translate3d(' + (P.x - w / 2).toFixed(1) + 'px,' + (P.y - h / 2).toFixed(1) + 'px,0) scale(' + (0.72 + 0.28 * P.iris).toFixed(3) + ')';
     P.el.style.opacity = P.k.toFixed(3);
   }
-  function strike() { return spot ? gsap.to(spot, { k: 1, duration: B.rm ? 0 : 1.3, ease: 'power2.out' }) : gsap.timeline(); }
+  // The lamp catching: the iris opens smoothly while the light stutters twice and then holds.
+  function strike() {
+    if (!spot) return gsap.timeline();
+    if (B.rm) return gsap.to(spot, { k: 1, iris: 1, duration: 0 });
+    return gsap.timeline()
+      .to(spot, { k: 0.5, duration: 0.05, ease: 'none' })
+      .to(spot, { k: 0.12, duration: 0.07, ease: 'none' })
+      .to(spot, { k: 0.72, duration: 0.05, ease: 'none' })
+      .to(spot, { k: 0.38, duration: 0.08, ease: 'none' })
+      .to(spot, { k: 1, duration: 0.6, ease: 'power2.out' })
+      .to(spot, { iris: 1, duration: 1.1, ease: 'power2.out' }, 0);
+  }
 
   function sheen() {
     var tl = gsap.timeline(), hero = doc.getElementById('gx-hero');
-    if (!hero || B.rm) return tl;
+    if (!hero || B.rm || !DESK) return tl;
     [].forEach.call(hero.querySelectorAll('.gx-hero__title,.gx-hero__line,.gx-hero__pres,.gx-hero__date,.gx-hero__time'), function (el, i) {
       var o = { p: 100 };
       tl.to(o, { p: 0, duration: 1.5, ease: 'power1.inOut',
@@ -873,11 +887,13 @@
     }
     return tl;
   }
+  // Opacity only, on its own layer while it moves, so the emboss filter is drawn once and not per frame.
   function houseLight(on) {
     var a = doc.querySelector('.gx-hero__art');
-    if (!a) return gsap.timeline();
-    if (!on) { gsap.set(a, { opacity: 0.22, '--gs': 0.985 }); return gsap.timeline(); }
-    return gsap.to(a, { opacity: 1, '--gs': 1, duration: 2.8, ease: 'power2.out' });
+    if (!a || !DESK) return gsap.timeline();
+    if (!on) { gsap.set(a, { opacity: 0.22 }); return gsap.timeline(); }
+    return gsap.to(a, { opacity: 1, duration: 2.8, ease: 'power2.out',
+      onStart: function () { a.style.willChange = 'opacity'; }, onComplete: function () { a.style.willChange = ''; } });
   }
 
   /* ------------------------------------------------------------ hero art (static, iteration 1) */
@@ -1004,7 +1020,7 @@
       GX.debug.mode = B.rm ? 'reduced' : (B.seen ? 'seen' : 'late');
       fit();
       setupSpot();
-      var place = function () { gsap.set(cord, { x: legOffset() }); if (!B.rm) startSway(); run(true); strike(); if (!B.rm) gsap.delayedCall(0.4, function () { sheen(); }); };
+      var place = function () { gsap.set(cord, { x: legOffset() }); if (!B.rm) startSway(); if (spot) { run(true); strike(); } if (!B.rm) gsap.delayedCall(0.4, function () { sheen(); }); };
       if (B.state === 'open') place(); else doc.addEventListener('gx:open', place);
     }
     B.onsnd = function (on) {

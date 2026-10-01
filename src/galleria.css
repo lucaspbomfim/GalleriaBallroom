@@ -1,6 +1,6 @@
-/* GalleriaBallroom engine v0.2.0 stylesheet.
+/* GalleriaBallroom engine v0.2.1 stylesheet.
    The sentinel comes first: the engine waits until it reads back (MD 12.4). */
-:root { --gx-v: "0.2.0"; }
+:root { --gx-v: "0.2.1"; }
 
 #gx-c .gx-gl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 #gx-c .gx-cord { touch-action: none; }
@@ -23,7 +23,7 @@
 .gx-hero__art {
   position: absolute; left: 50%; top: 50%; z-index: 0;
   width: var(--aw, min(1000px, 70vw)); height: var(--ah, auto); aspect-ratio: 841.89 / 595.28;
-  transform: translate(-50%, -50%) scale(var(--gs, 1)); pointer-events: none;
+  transform: translate(-50%, -50%); pointer-events: none;
 }
 .gx-hero__art svg { display: block; width: 100%; height: 100%; overflow: visible; }
 /* Paper grain over the field and the emboss, under the type (the save the date is printed on textured stock). */
@@ -34,7 +34,7 @@
 
 /* Portrait: the cartouche turns a quarter and frames a column; the engine turns the light with it. */
 @media (orientation: portrait) {
-  .gx-hero__art { transform: translate(-50%, -50%) rotate(90deg) scale(var(--gs, 1)); }
+  .gx-hero__art { transform: translate(-50%, -50%) rotate(90deg); }
 }
 
 /* Scene 1. The follow spot: a colour-dodge gain (base / (1 - g)) with a full core, a soft iris edge
