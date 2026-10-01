@@ -10,26 +10,31 @@
 <p class="gx-hero__time">6 PM</p>
 <a class="gx-hero__cta" href="#gx-tickets">Reserve your place</a>
 </div>
+<p class="gx-hero__credit">Music: <a href="https://incompetech.com/" target="_blank" rel="noopener">Mystery Sax by Kevin MacLeod</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, excerpt</p>
 </section>
 <style>
 html,body{background:#640D16!important;overflow-x:hidden;overflow-x:clip}
 .ml-column:has(#gx-hero){min-width:0}
-.gx-hero{--k:min(84vw,122svh);--u:calc(var(--k)/100);position:relative;box-sizing:border-box;width:var(--ml-safe-vw,100vw);max-width:none;margin-left:calc(50% - var(--ml-safe-half,50vw));margin-right:calc(50% - var(--ml-safe-half,50vw));height:100vh;height:100svh;min-height:600px;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center;color:#D3B69C;background:radial-gradient(46% 42% at 50% 47%,rgba(138,30,38,.42),rgba(138,30,38,0)),radial-gradient(80% 78% at 50% 47%,rgba(42,12,16,0) 45%,rgba(42,12,16,.72)),#640D16}
+.gx-hero{--cw:min(88vw,150svh);--ch:clamp(calc(var(--cw)/1.6),94svh,calc(var(--cw)/1.25));--aw:var(--cw);--ah:var(--ch);--u:calc(var(--cw)/100);position:relative;box-sizing:border-box;width:var(--ml-safe-vw,100vw);max-width:none;margin-left:calc(50% - var(--ml-safe-half,50vw));margin-right:calc(50% - var(--ml-safe-half,50vw));height:100vh;height:100svh;min-height:560px;overflow:hidden;text-align:center;color:#D3B69C;background:radial-gradient(46% 42% at 50% 47%,rgba(138,30,38,.42),rgba(138,30,38,0)),radial-gradient(80% 78% at 50% 47%,rgba(42,12,16,0) 45%,rgba(42,12,16,.72)),#640D16}
 .gx-hero *{box-sizing:border-box;margin:0}
-.gx-hero__in{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;width:calc(var(--u)*66)}
-.gx-hero__logo,.gx-hero__beau{position:relative;font:300 calc(var(--u)*2.6)/1 "tt-modernoir","Lexend Peta",sans-serif;text-transform:uppercase}
-.gx-hero__logo{width:calc(var(--u)*20)}
-.gx-hero__beau{width:calc(var(--u)*13.5);margin-top:calc(var(--u)*.9);font-size:calc(var(--u)*1.2)}
-.gx-hero__title{font:300 calc(var(--u)*10)/.98 "tt-modernoir","Lexend Peta",sans-serif;letter-spacing:.004em;text-transform:uppercase;margin-top:calc(var(--u)*4.6)}
-.gx-hero__line,.gx-hero__pres,.gx-hero__time,.gx-hero__cta{font-family:"Lexend Peta",Helvetica,Arial,sans-serif;text-transform:uppercase;letter-spacing:0;color:#D3B69C}
-.gx-hero__line{font-size:max(10px,calc(var(--u)*1.12));line-height:1.7;font-weight:400;margin-top:calc(var(--u)*3.3)}
-.gx-hero__pres{font-size:max(9px,calc(var(--u)*.95));font-weight:500;margin-top:calc(var(--u)*3.4)}
-.gx-hero__date{font:300 calc(var(--u)*4.6)/1 "tt-modernoir","Lexend Peta",sans-serif;letter-spacing:.004em;text-transform:uppercase;margin-top:calc(var(--u)*3.4)}
-.gx-hero__time{font-size:max(11px,calc(var(--u)*1.15));margin-top:calc(var(--u)*1.2)}
-.gx-hero__cta{display:inline-flex;align-items:center;min-height:max(48px,calc(var(--u)*4.4));padding:0 calc(var(--u)*2.4);margin-top:calc(var(--u)*5);font-size:max(11px,calc(var(--u)*1.05));text-decoration:none;border:1px solid #D3B69C}
-.gx-hero__cta:hover{background:rgba(211,182,156,.08)}
+.gx-hero__in{position:absolute;left:50%;top:50%;width:var(--cw);height:var(--ch);transform:translate(-50%,-50%);z-index:1}
+.gx-hero__in>*{position:absolute;left:50%;top:var(--y);transform:translate(-50%,-50%);white-space:nowrap}
+.gx-hero__logo,.gx-hero__beau{font:300 calc(var(--u)*2.6)/1 "tt-modernoir","Lexend Peta",sans-serif;text-transform:uppercase}
+.gx-hero__logo{--y:17%;width:calc(var(--u)*22)}
+.gx-hero__title{--y:40%;font:300 calc(var(--u)*11.4)/.96 "tt-modernoir","Lexend Peta",sans-serif;letter-spacing:.004em;text-transform:uppercase}
+.gx-hero__line,.gx-hero__pres,.gx-hero__time,.gx-hero__cta{font-family:"Lexend Peta",Helvetica,Arial,sans-serif;text-transform:uppercase;letter-spacing:0}
+.gx-hero__line{--y:55%;font-size:max(10px,calc(var(--u)*1.22));line-height:1.7;width:calc(var(--u)*84);white-space:normal}
+.gx-hero__pres{--y:63%;font-size:max(9px,calc(var(--u)*1));font-weight:500}
+.gx-hero__beau{--y:68.5%;width:calc(var(--u)*12.5);font-size:calc(var(--u)*1.1)}
+.gx-hero__date{--y:78%;font:300 calc(var(--u)*5)/1 "tt-modernoir","Lexend Peta",sans-serif;letter-spacing:.004em;text-transform:uppercase}
+.gx-hero__time{--y:84.5%;font-size:max(11px,calc(var(--u)*1.2))}
+.gx-hero__cta{--y:93%;display:inline-flex;align-items:center;min-height:max(48px,calc(var(--u)*4));padding:0 calc(var(--u)*2.4);font-size:max(11px,calc(var(--u)*1.1));color:#D3B69C;text-decoration:none;border:1px solid #D3B69C;background:#640D16}
+.gx-hero__cta:hover{background:#6F1520}
 .gx-hero__cta:focus-visible{outline:1px solid #D3B69C;outline-offset:4px}
-@media(orientation:portrait){.gx-hero{--k:min(134vw,78svh);--u:calc(var(--k)/141.4)}.gx-hero__in{width:calc(var(--u)*78)}.gx-hero__title{font-size:calc(var(--u)*13.5)}.gx-hero__title span{display:block}.gx-hero__logo{width:calc(var(--u)*34)}.gx-hero__beau{width:calc(var(--u)*30)}.gx-hero__line{font-size:max(10px,calc(var(--u)*2.6))}.gx-hero__date{font-size:calc(var(--u)*8.4)}}
+.gx-hero__credit{position:absolute;left:50%;bottom:max(6px,1svh);transform:translateX(-50%);z-index:1;width:min(92vw,560px);font:400 9px/1.6 "Lexend Peta",Helvetica,Arial,sans-serif;text-transform:uppercase;opacity:.6}
+.gx-hero__credit a{color:inherit;text-decoration:none}
+.gx-hero__credit a:focus-visible{outline:1px solid #D3B69C;outline-offset:2px}
+@media(orientation:portrait){.gx-hero__credit{bottom:max(56px,7svh);width:80vw}.gx-hero{--cw:92vw;--ch:clamp(calc(var(--cw)*1.45),84svh,calc(var(--cw)*1.9));--aw:var(--ch);--ah:var(--cw)}.gx-hero__logo{--y:13%;width:calc(var(--u)*40)}.gx-hero__title{--y:29%;font-size:calc(var(--u)*15.5);white-space:normal}.gx-hero__title span{display:block}.gx-hero__line{--y:45.5%;font-size:max(10px,calc(var(--u)*2.8));width:calc(var(--u)*74)}.gx-hero__pres{--y:55.5%;font-size:max(9px,calc(var(--u)*2.4))}.gx-hero__beau{--y:60.5%;width:calc(var(--u)*32)}.gx-hero__date{--y:70%;font-size:calc(var(--u)*9.4)}.gx-hero__time{--y:76%;font-size:max(11px,calc(var(--u)*3))}.gx-hero__cta{--y:87%;font-size:max(11px,calc(var(--u)*3))}}
 </style>
 <script>
 (function(){var d=document.documentElement;function s(){var x=d.clientWidth;d.style.setProperty('--ml-safe-vw',x+'px');d.style.setProperty('--ml-safe-half',x/2+'px')}s();addEventListener('resize',s,{passive:true})})();

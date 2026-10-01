@@ -1,17 +1,17 @@
 /*!
- * GalleriaBallroom engine v0.1.1
+ * GalleriaBallroom engine v0.1.2
  * Galleria Thanksgiving Ball RSVP page, Pyper Publishing.
- * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, three taps on
- * a champagne flute, the tableau opening and the settled frame.
+ * Scene 0: the velvet curtain in WebGL, the projector, the cord and its tassel, a sax overture,
+ * the tableau opening and the settled frame.
  * Readable source. dist/galleria.min.js is this file run through terser.
  * Loaded by the page's first block, which creates window.GXB. No font files live here.
  * Hash switches for review: #curtain (show the curtain again), #purpose (purpose line in the
- * projection), #musicbox (second sound palette). They combine: #curtain-purpose-musicbox.
+ * projection). They combine: #curtain-purpose.
  */
 (function () {
   'use strict';
 
-  var VERSION = '0.1.1';
+  var VERSION = '0.1.2';
   var B = window.GXB;
   var doc = document;
   var root = doc.documentElement;
@@ -374,8 +374,10 @@
     curtain.style.background = '';
   }
 
+  var lastTick = [0, 0];   // [GSAP global time, wall clock] at the last frame
   function tick() {
     var T = clock();
+    lastTick = [gsap.globalTimeline.time(), performance.now()];
     follow(T);
     if (mode === 'webgl' && GL) drawGL(T); else if (mode === 'css') drawCSS(T);
   }
@@ -532,24 +534,18 @@
   }
 
   /* ------------------------------------------------------------ sound
-     Synthesized, no files. Nothing is created or scheduled before a gesture; with sound off the
-     page does exactly the same. Two palettes:
-       toast    (default) a spoon on a champagne flute calls the room three times; the cord
-                gives small celesta notes that climb as it is pulled; the rise is a celesta
-                run over a soft swish of velvet, closed by a few glints.
-       musicbox (#musicbox) the same moments in music-box notes; the call is a rising triad.
-     Every voice takes X = { c: context, out: node, noise: buffer }, so the same code plays live
-     and renders offline (GX.debug.renderSound). */
+     The overture: "Mystery Sax" by Kevin MacLeod (incompetech.com, CC BY 4.0; credit at the foot
+     of the hero, details in dist/audio/CREDITS.md). It starts with the gesture that opens the
+     curtain, on the low drone of its first seconds; the three shivers run over the drone and the
+     sax's first note lands on the first moment of the rise. The file is fetched and decoded ahead
+     of time in an OfflineAudioContext (which plays nothing), so the entry is not late. Besides the
+     music, only the velvet makes a sound. Nothing is created or played before a gesture; with sound
+     off the page does exactly the same. */
 
   var VOL = 1;
-  var PALETTE = /musicbox/.test(HASH) ? 'musicbox' : 'toast';
-  var PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
-  var GLASS = [[1, 1, 1], [1.0008, 0.6, 0.95], [2.76, 0.32, 0.45], [5.4, 0.16, 0.18], [8.9, 0.06, 0.08]];
-  var CELESTA = [[1, 1, 1], [2, 0.3, 0.45], [3, 0.1, 0.2], [4.03, 0.05, 0.12]];
-  var MBOX = [[1, 1, 1], [3, 0.18, 0.3], [5.9, 0.1, 0.12], [9.2, 0.05, 0.06]];
-  function note(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  var OV = { entry: 1.967, gain: 0.6 };   // seconds into overture.mp3 where the sax enters
+  var ov = { started: false, ab: null, buf: null, loading: null };
   function riseEase(p) { return 1 - Math.pow(1 - Math.pow(clamp(p, 0, 1), 1.6), 2.4); }
-  function riseInv(y) { var a = 0, b = 1; for (var i = 0; i < 24; i++) { var m = (a + b) / 2; if (riseEase(m) < y) a = m; else b = m; } return (a + b) / 2; }
 
   function noiseBuf(c, dur) {
     var n = Math.floor(c.sampleRate * dur), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
@@ -575,30 +571,6 @@
     dry.connect(master); wet.connect(master);
     return { c: c, out: lp, master: master, noise: noiseBuf(c, 2.5) };
   }
-
-  function bell(X, t, f, g, dec, parts) {
-    parts.forEach(function (p) {
-      var o = X.c.createOscillator(), e = X.c.createGain(), d = dec * p[2];
-      o.type = 'sine';
-      o.frequency.value = f * p[0];
-      e.gain.setValueAtTime(0.0001, t);
-      e.gain.exponentialRampToValueAtTime(g * p[1], t + 0.004);
-      e.gain.exponentialRampToValueAtTime(0.0001, t + d);
-      o.connect(e); e.connect(X.out);
-      o.start(t); o.stop(t + d + 0.05);
-      GX.debug.sounds++;
-    });
-  }
-  function click(X, t, g, f) {
-    var n = X.c.createBufferSource(), hp = X.c.createBiquadFilter(), e = X.c.createGain();
-    n.buffer = X.noise;
-    hp.type = 'highpass'; hp.frequency.value = f;
-    e.gain.setValueAtTime(g, t);
-    e.gain.exponentialRampToValueAtTime(0.0001, t + 0.012);
-    n.connect(hp); hp.connect(e); e.connect(X.out);
-    n.start(t, Math.random() * 2, 0.03);
-    GX.debug.sounds++;
-  }
   function swish(X, t, D, g) {
     var n = X.c.createBufferSource(), bp = X.c.createBiquadFilter(), e = X.c.createGain();
     n.buffer = X.noise; n.loop = true;
@@ -613,29 +585,6 @@
     n.start(t, Math.random()); n.stop(t + D + 0.3);
     GX.debug.sounds++;
   }
-  // a run of notes that follows the speed of the rise
-  function arp(X, t, D, base, n, parts, g) {
-    for (var i = 0; i < n; i++) {
-      var tt = t + D * riseInv((i + 0.5) / n), m = base + PENTA[i % 8] + 12 * Math.floor(i / 8);
-      bell(X, tt, note(m), g * (1 - 0.4 * i / n), 0.9, parts);
-    }
-  }
-  function glints(X, t, g) {
-    [100, 104, 107].forEach(function (m, i) { bell(X, t + i * 0.11 + Math.random() * 0.04, note(m), g, 0.7, CELESTA); });
-  }
-
-  var SND = {
-    toast: {
-      tick: function (X, t, i) { bell(X, t, note(76 + PENTA[i % 8]), 0.05, 0.5, CELESTA); },
-      cue: function (X, t, i) { click(X, t, 0.09, 6000); bell(X, t, 1975.5 * [1, 1.003, 0.998][i], [0.26, 0.21, 0.28][i], 1.8, GLASS); },
-      rise: function (X, t, D) { swish(X, t, D, 0.045); arp(X, t, D, 64, 15, CELESTA, 0.055); glints(X, t + D * 0.95, 0.03); }
-    },
-    musicbox: {
-      tick: function (X, t, i) { bell(X, t, note(84 + PENTA[i % 8]), 0.16, 0.4, MBOX); },
-      cue: function (X, t, i) { bell(X, t, note([88, 92, 95][i]), 0.52, 1.3, MBOX); },
-      rise: function (X, t, D) { swish(X, t, D, 0.06); arp(X, t, D, 76, 13, MBOX, 0.22); glints(X, t + D * 0.95, 0.08); }
-    }
-  };
 
   var A = null;
   function audio() {
@@ -652,30 +601,56 @@
     return A;
   }
   function live() { return B.snd && A && A.c.state === 'running' ? A : null; }
-  function play(name, a, b) { var X = live(); if (X) SND[PALETTE][name](X, X.c.currentTime + 0.005, a, b); }
 
-  // Offline render of the whole sequence, for listening to a palette without the page.
-  GX.debug.renderSound = function (pal) {
-    var sr = 44100, D = 7.5, oc = new OfflineAudioContext(2, Math.round(sr * D), sr), X = graph(oc), P = SND[pal || PALETTE];
-    for (var i = 0; i < 6; i++) P.tick(X, 0.2 + i * 0.12, i);
-    [0.45, 0.9, 1.35].forEach(function (d, i) { P.cue(X, 1.2 + d, i); });
-    P.rise(X, 2.8, RISE_D);
-    return oc.startRendering().then(function (buf) {
-      var n = buf.length, ch = [buf.getChannelData(0), buf.getChannelData(1)], out = new DataView(new ArrayBuffer(44 + n * 4));
-      function str(o, s) { for (var i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); }
-      str(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); str(8, 'WAVEfmt '); out.setUint32(16, 16, true);
-      out.setUint16(20, 1, true); out.setUint16(22, 2, true); out.setUint32(24, sr, true); out.setUint32(28, sr * 4, true);
-      out.setUint16(32, 4, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, n * 4, true);
-      var peak = 0;
-      for (var k = 0; k < n; k++) for (var c = 0; c < 2; c++) {
-        var v = clamp(ch[c][k], -1, 1); peak = Math.max(peak, Math.abs(v));
-        out.setInt16(44 + (k * 2 + c) * 2, v * 32767, true);
-      }
-      var bytes = new Uint8Array(out.buffer), s = '';
-      for (var j = 0; j < bytes.length; j += 32768) s += String.fromCharCode.apply(null, bytes.subarray(j, j + 32768));
-      return { wav: btoa(s), peak: peak };
-    });
-  };
+  function loadOverture() {
+    if (!ov.loading) {
+      ov.loading = fetch(DIST + 'audio/overture.mp3')
+        .then(function (r) { if (!r.ok) throw new Error('overture ' + r.status); return r.arrayBuffer(); })
+        .then(function (ab) {
+          ov.ab = ab;
+          var OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+          if (!OC) return;
+          return new Promise(function (ok) {
+            try { new OC(2, 1, 44100).decodeAudioData(ab.slice(0), function (buf) { ov.buf = buf; ok(); }, function () { ok(); }); } catch (e) { ok(); }
+          });
+        })
+        .catch(function () {});
+    }
+    return ov.loading;
+  }
+
+  // riseIn: seconds from now until the curtain starts to rise (null when the curtain is not opening).
+  function music(riseIn) {
+    var X = audio();
+    if (!X || ov.started) return;
+    var t0 = performance.now();
+    if (X.c.state !== 'running') {
+      X.c.resume().then(function () {
+        if (X.c.state === 'running') music(riseIn == null ? null : riseIn - (performance.now() - t0) / 1000);
+      }, function () {});
+      return;
+    }
+    ov.started = true;
+    loadOverture().then(function () {
+      if (ov.buf) return ov.buf;
+      if (!ov.ab) throw 0;
+      return new Promise(function (ok, no) { X.c.decodeAudioData(ov.ab.slice(0), ok, no); });
+    }).then(function (buf) {
+      if (!live()) throw 0;
+      var spent = (performance.now() - t0) / 1000;
+      var lead = riseIn == null ? OV.entry : riseIn - spent;          // seconds until the sax should sound
+      var off = Math.max(0, OV.entry - lead), wait = Math.max(0, lead - OV.entry);
+      var src = X.c.createBufferSource(), g = X.c.createGain(), t = X.c.currentTime + 0.02 + wait;
+      src.buffer = buf;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(OV.gain, t + 0.5);
+      src.connect(g); g.connect(X.out);
+      src.start(t, off);
+      GX.debug.sounds++;
+      GX.debug.overture = { offset: +off.toFixed(3), wait: +wait.toFixed(3), saxAt: Math.round(performance.now() + (0.02 + wait + OV.entry - off) * 1000) };
+      log('overture');
+    }).catch(function () { ov.started = false; });
+  }
 
   /* ------------------------------------------------------------ the cord */
 
@@ -701,7 +676,7 @@
     SP.l[2] = k * 0.012;
     var seg = Math.floor(y / STEP);
     if (seg > lastSeg) {
-      for (var i = lastSeg; i < seg; i++) { play('tick', i); kick(0.18); GX.debug.knocks++; }
+      for (var i = lastSeg; i < seg; i++) { kick(0.18); GX.debug.knocks++; }
       lastSeg = seg;
     } else if (seg < lastSeg) lastSeg = seg;
   }
@@ -726,7 +701,7 @@
     var centre = Math.min(w - (1 - F[0]) * w / 4, w - 17);
     return centre - (r.left + r.width / 2) + (gsap.getProperty(cord, 'x') || 0);
   }
-  function cue(i) { play('cue', i); kick(0.55); GX.debug.heavy++; log('cue'); }
+  function cue() { kick(0.55); GX.debug.heavy++; log('cue'); }
 
   function setupCord() {
     cord.addEventListener('pointerdown', function () { lastPointer = Date.now(); }, true);
@@ -755,8 +730,8 @@
   GX.debug.letGo = function (y) { dragging = false; release(y); };
 
   /* ------------------------------------------------------------ the opening
-     Release: the cord springs back and the lifted corners fall to the floor. Three taps call
-     the room. Then the lines take the curtain up: a slow, heavy start, a long sweep, the middle
+     Release: the cord springs back and the lifted corners fall to the floor. Three shivers run
+     through the cloth. Then the lines take the curtain up: a slow, heavy start, a long sweep, the middle
      of the cloth trailing the lines, and a soft overshoot as it stops, the legs swinging once or
      twice before they hang still. */
 
@@ -800,11 +775,15 @@
     tl.call(kick, [0.3], 'rel+=0.42');
     [0.45, 0.9, 1.35].forEach(function (t, i) { tl.call(cue, [i], 'rel+=' + t); });
     tl.to(S, { proj: 0, duration: 0.9, ease: 'power1.in' }, 'rel+=1.5');
-    tl.call(function () { play('rise', RISE_D); log('rise'); emit('gx:rise'); }, null, 'rel+=1.6');
+    tl.call(function () { var X = live(); if (X) swish(X, X.c.currentTime + 0.01, RISE_D, 0.06); log('rise'); emit('gx:rise'); }, null, 'rel+=1.6');
     tl.to(cord, { x: legOffset(), duration: RISE_D, ease: 'power2.inOut' }, 'rel+=1.6');
     var R = { t: 0 };
     tl.to(R, { t: RISE_T, duration: RISE_T, ease: 'none', onUpdate: function () { riseAt(R.t); } }, 'rel+=1.6');
     tl.call(settled);
+    // The sax's first note lands on the first frame of the rise. A new timeline counts from the last
+    // frame drawn, not from now, so the rise time is read off the GSAP clock and anchored to that frame.
+    var riseT = tl.startTime() + tl.labels.rel + 1.6;
+    music(Math.max(0, riseT - lastTick[0] - (performance.now() - lastTick[1]) / 1000));
   }
 
   function settled() {
@@ -825,6 +804,16 @@
     return '<svg viewBox="0 0 ' + L.w + ' ' + L.h + '" aria-hidden="true" focusable="false">' +
       L.d.map(function (d) { return '<path d="' + d + '"/>'; }).join('') + '</svg>';
   }
+  // L is the lit height map: 0.5 on flat ground. Above that becomes light on the edges, below it shadow.
+  function emboss(id, azimuth) {
+    return '<filter id="' + id + '" x="-3%" y="-3%" width="106%" height="106%" color-interpolation-filters="sRGB">' +
+      '<feGaussianBlur in="SourceAlpha" stdDeviation="1.8" result="h"/>' +
+      '<feDiffuseLighting in="h" surfaceScale="4" diffuseConstant="1" lighting-color="#fff" result="l">' +
+      '<feDistantLight azimuth="' + azimuth + '" elevation="30"/></feDiffuseLighting>' +
+      '<feColorMatrix in="l" type="matrix" values="0 0 0 0 .62 0 0 0 0 .22 0 0 0 0 .22 1.05 0 0 0 -.525" result="hi"/>' +
+      '<feColorMatrix in="l" type="matrix" values="0 0 0 0 .16 0 0 0 0 .03 0 0 0 0 .04 -1.2 0 0 0 .6" result="sh"/>' +
+      '<feMerge><feMergeNode in="sh"/><feMergeNode in="hi"/></feMerge></filter>';
+  }
   function heroArt() {
     var hero = doc.getElementById('gx-hero');
     if (!hero) return;
@@ -836,10 +825,17 @@
     });
     var slot = hero.querySelector('.gx-hero__art'), R = window.GX_ART && window.GX_ART.rococos;
     if (slot && R && !slot.firstChild) {
-      // dry emboss: a lit copy toward the light (top left), a shadow copy away from it, the base on top
-      slot.innerHTML = '<svg viewBox="0 0 ' + R.w + ' ' + R.h + '" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">' +
-        '<defs><path id="gx-rc" d="' + R.d + '"/></defs>' +
-        '<use href="#gx-rc" class="gx-rl"/><use href="#gx-rc" class="gx-rs"/><use href="#gx-rc" class="gx-rb"/></svg>';
+      // Blind emboss, as on the save the date: the ornament has the colour of the paper; only light
+      // and shadow on its rounded edges show it. The softened outline is a height map lit from
+      // above and a little to the left; flat ground and flat faces stay untouched.
+      slot.innerHTML = '<svg viewBox="0 0 ' + R.w + ' ' + R.h + '" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
+        '<defs><path id="gx-rc" d="' + R.d + '"/>' + emboss('gx-emb-l', 250) + emboss('gx-emb-p', 160) + '</defs>' +
+        '<use href="#gx-rc" class="gx-emb"/></svg>';
+      var use = slot.querySelector('use'), mq = matchMedia('(orientation: portrait)');
+      // in portrait the cartouche is turned a quarter, so the light turns the other way to stay on top
+      var orient = function () { use.setAttribute('filter', 'url(#gx-emb-' + (mq.matches ? 'p' : 'l') + ')'); };
+      orient();
+      if (mq.addEventListener) mq.addEventListener('change', orient); else if (mq.addListener) mq.addListener(orient);
     }
     log('hero-art');
   }
@@ -878,6 +874,7 @@
       run(true);
     }
     setupCord();
+    setTimeout(loadOverture, 3000);   // fetch the overture once the curtain is up, out of the way of first paint
     var rt = 0;
     if ('ResizeObserver' in window) {
       new ResizeObserver(function () {
@@ -900,6 +897,7 @@
     if (B.fail) { GX.debug.mode = 'late-fail'; return; }
     if (!cssOk) { GX.debug.mode = 'no-css'; return; } // block 1 falls back on its own timer
     gsap.registerPlugin(Draggable);
+    gsap.ticker.lagSmoothing(0);   // keep the timeline on the wall clock, which the music follows
     if (!B.state && !B.rm) takeOver();
     else {
       GX.debug.mode = B.rm ? 'reduced' : (B.seen ? 'seen' : 'late');
@@ -908,7 +906,7 @@
       if (B.state === 'open') place(); else doc.addEventListener('gx:open', place);
     }
     B.onsnd = function (on) {
-      if (on) audio();
+      if (on && B.state === 'open') music(null); else if (on) audio();
       if (A) A.master.gain.setTargetAtTime(on ? VOL : 0, A.c.currentTime, 0.03);
     };
     root.classList.add('gx-ready');
