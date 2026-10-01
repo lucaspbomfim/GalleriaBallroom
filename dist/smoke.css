@@ -1,0 +1,3 @@
+/* GalleriaBallroom smoke test v0.0.1: proves a stylesheet injected by JS from jsDelivr applies. */
+:root{--gx-smoke:"0.0.1"}
+#gxs-c{outline:1px solid #D3B69C;outline-offset:6px}
